@@ -26,6 +26,18 @@ _(append entries here as the user pushes back on anything)_
 
 ## action-controller status codes (2026-05-19)
 - Returning a String from a `@[AC::Route::GET]` action triggers the responder which writes status before any manual `response.status_code = ...` takes effect. Set the status via the annotation: `@[AC::Route::GET("/x", status_code: HTTP::Status::UNAUTHORIZED)]`.
+- Same applies to `@[AC::Route::Exception(...)]` handlers — `status_code:` is baked in at compile time. If you need a *variable* response status, split into multiple exception classes (one per status code) and attach a separate annotation to each.
+
+## Authly shard gotchas (2026-05-19)
+- **`AuthorizableClient` interface is incomplete.** Authly internally calls `Authly.clients.allowed_grant_type?(client_id, grant_type)` on the typed `AuthorizableClient` reference, but the abstract module doesn't declare it. Our custom Client class must define it explicitly. Same goes for `Enumerable(Authly::Client)` — `device_authorization_handler` iterates clients via `.any?`; even if you don't mount the device flow, the file has to type-check. Add `include Enumerable(::Authly::Client)` with a no-op `each`.
+- **`Authly.config` mutations don't backfill struct-level constants captured at load time.** `Authly::Code` defines `ISSUER = Authly.config.issuer` and `CODE_TTL = Authly.config.code_ttl` at class load; same with `Authly::AccessToken::{ACCESS_TTL, REFRESH_TTL}`. If you call `Authly.configure` *after* the file is required (the only realistic option), tokens are minted with the upstream defaults while `Authly.jwt_decode` validates against your live config. Open-class the affected methods to read `Authly.config.<field>` dynamically. Pattern lives in `src/placeos-auth/authly_adapter.cr`.
+- **`Authly.config.clients` is captured by ref but `Authly::Code::ISSUER` is captured by value.** Distinct semantics, easy to confuse.
+
+## Spec env vs. production wiring (2026-05-19)
+- The spec runner loads `src/config.cr` via `spec/helper.cr` but does NOT load `src/app.cr`. Anything that needs to run for both prod and tests has to land in `config.cr` or in a file `config.cr` requires (typically `src/placeos-auth/<thing>.cr`). The Authly `configure!` call had this exact bug — was in `app.cr` only, so specs ran with the upstream defaults.
+
+## DoorkeeperApplication.secret is regenerated (2026-05-19)
+- `placeos-models`' `DoorkeeperApplication` has a `before_create :generate_secret` callback that overwrites whatever `secret` you set on a fresh record with `Random::Secure.urlsafe_base64(40)`. Specs must read `app.secret` AFTER `save!` if they need the real value.
 
 ## Spec helper gotchas (2026-05-19)
 - `PlaceOS::Model::Generator.jwt` hard-codes `domain: Faker::Internet.email`. That works in rest-api specs only by accident: `URI.parse("name@example.com").host` returns nil and `URI.parse("localhost").host` also returns nil, so `ensure_matching_domain`'s `nil == nil` check passes. Any current_user implementation that falls back to the raw domain string when host is nil — which is the *correct* check in production — breaks against this seed data.

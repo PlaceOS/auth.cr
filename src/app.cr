@@ -82,6 +82,10 @@ else
   PgORM::Database.configure { |_| }
 end
 
+# NOTE: `PlaceOS::Auth::AuthlyAdapter.configure!` already ran when the
+# `authly_adapter` source file was required (at compile/load time). No
+# duplicate call needed here.
+
 PlaceOS::Auth::Log.info {
   "launching #{PlaceOS::Auth::APP_NAME} v#{PlaceOS::Auth::VERSION} " \
   "(#{PlaceOS::Auth::BUILD_COMMIT} @ #{PlaceOS::Auth::BUILD_TIME.strip})"

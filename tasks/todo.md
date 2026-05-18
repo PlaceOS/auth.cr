@@ -41,15 +41,17 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [ ] Doorkeeper token revocation on logout — deferred to Phase 3 when authly token store lands
 
 ## Phase 3 — OAuth2 / OIDC server (authly)
-- [ ] `AuthlyOwner` against `User`
-- [ ] `AuthlyClient` against `DoorkeeperApplication`
-- [ ] `AuthlyClaimsProvider` — match Ruby token shape `{iss:"POS", aud, sub, u:{n,e,p,r}}`
-- [ ] `AuthlyTokenStore` — persist + revoke
-- [ ] JWT signing config (RS256, `JWT_SECRET` env)
-- [ ] Mount `AuthlyHandler` under `/auth`
-- [ ] Reject `grant_type=password` with `unsupported_grant_type`
-- [ ] Specs: authorization_code, client_credentials, refresh_token, revoke, userinfo, well-known discovery
-- [ ] Spec: password grant rejected
+- [x] `AuthlyAdapter::Owner` against `User` (id_token only — password grant disabled)
+- [x] `AuthlyAdapter::Client` against `DoorkeeperApplication` (uid lookup, grant-type allowlist, scope guard)
+- [x] `AuthlyAdapter::ClaimsProvider` — emits `u:{n,e,p,r}` + `aud=authority.domain`
+- [x] JWT signing config (RS256, `JWT_SECRET` env, derives public key)
+- [x] `Authly.configure!` runs at require time so spec env + prod both wired
+- [x] OAuth controller — POST `/auth/token` (client_credentials, authorization_code, refresh_token) + GET `/auth/authorize` (code flow)
+- [x] Reject `grant_type=password` with `unsupported_grant_type`
+- [x] Open-class patch for `Authly::Code#jwt` to read live `Authly.config.{issuer,code_ttl}` (upstream captures at load time)
+- [x] Specs: client_credentials happy + 401 unknown + 401 bad secret + password rejection + unknown grant + authorization_code → refresh round-trip + authorize redirect/unauth/unknown response_type/unregistered redirect — 9 specs all green
+- [ ] `AuthlyTokenStore` — persist + revoke (Phase 3c, blocked on OAuthToken model)
+- [ ] `/auth/revoke`, `/auth/userinfo`, `/.well-known/openid-configuration` (Phase 3d)
 
 ## Phase 4 — OAuth2 client (multi_auth)
 - [ ] Per-request multi_auth provider registration from `oauth_strat`

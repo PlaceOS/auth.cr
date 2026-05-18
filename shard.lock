@@ -1,20 +1,89 @@
+# NOTICE: This lockfile contains some overrides from shard.override.yml
 version: 2.0
 shards:
+  CrystalEmail: # Overridden
+    git: https://github.com/place-labs/crystalemail.git
+    version: 0.2.6
+
   action-controller:
     git: https://github.com/spider-gazelle/action-controller.git
     version: 7.6.1
 
+  active-model:
+    git: https://github.com/spider-gazelle/active-model.git
+    version: 4.3.3
+
   ameba:
-    git: https://github.com/veelenga/ameba.git
+    git: https://github.com/crystal-ameba/ameba.git
     version: 1.6.4
+
+  authly:
+    git: https://github.com/place-labs/authly.git
+    version: 1.2.7+git.commit.db8c2b7af4d85c489dd06e8d8670fe7563292364
+
+  awscr-s3:
+    git: https://github.com/taylorfinnell/awscr-s3.git
+    version: 0.10.0
+
+  awscr-signer:
+    git: https://github.com/taylorfinnell/awscr-signer.git
+    version: 0.9.0
+
+  azblob:
+    git: https://github.com/spider-gazelle/azblob.cr.git
+    version: 0.1.0
 
   backtracer:
     git: https://github.com/sija/backtracer.cr.git
     version: 1.2.4
 
+  bindata:
+    git: https://github.com/spider-gazelle/bindata.git
+    version: 2.1.1
+
+  connect-proxy:
+    git: https://github.com/spider-gazelle/connect-proxy.git
+    version: 2.0.3
+
+  cron_parser:
+    git: https://github.com/kostya/cron_parser.git
+    version: 0.4.0
+
+  crystal-saml:
+    git: https://github.com/spider-gazelle/crystal-saml.git
+    version: 0.1.0+git.commit.970218b4dea5e3ec1bc83dd23c50c0e7b7bb082f
+
+  db:
+    git: https://github.com/crystal-lang/crystal-db.git
+    version: 0.13.1
+
+  ed25519:
+    git: https://github.com/spider-gazelle/ed25519.git
+    version: 1.1.0
+
+  email:
+    git: https://github.com/arcage/crystal-email.git
+    version: 0.7.1
+
+  eventbus:
+    git: https://github.com/spider-gazelle/eventbus.git
+    version: 1.0.1+git.commit.a707ac06aba16ba6070ff4972acfd839f1f05e15
+
   exception_page:
     git: https://github.com/crystal-loot/exception_page.git
     version: 0.5.0
+
+  faker:
+    git: https://github.com/askn/faker.git
+    version: 0.9.0
+
+  future:
+    git: https://github.com/crystal-community/future.cr.git
+    version: 1.0.0
+
+  google:
+    git: https://github.com/placeos/google.git
+    version: 3.5.0
 
   habitat:
     git: https://github.com/luckyframework/habitat.git
@@ -24,11 +93,103 @@ shards:
     git: https://github.com/jgaskins/hot_topic.git
     version: 0.1.0+git.commit.4eafc046ed4d98bbab7a4534da57e163ea16b6c6
 
+  http-params-serializable:
+    git: https://github.com/place-labs/http-params-serializable.git
+    version: 0.5.0
+
+  json-merge-patch:
+    git: https://github.com/caspiano/json-merge-patch.git
+    version: 0.1.1
+
   json-schema:
     git: https://github.com/spider-gazelle/json-schema.git
     version: 1.3.2
 
+  jwt:
+    git: https://github.com/crystal-community/jwt.git
+    version: 1.7.1
+
   lucky_router:
     git: https://github.com/luckyframework/lucky_router.git
     version: 0.6.1
+
+  multi_auth:
+    git: https://github.com/msa7/multi_auth.git
+    version: 1.2.0+git.commit.f1f60bf090b84b5a8c083d9618b7024e2998c5da
+
+  multi_auth_saml:
+    git: https://github.com/spider-gazelle/multi_auth_saml.git
+    version: 1.0.0+git.commit.efef5b5d9bd94e0571efa67544a72010a5c416a8
+
+  neuroplastic:
+    git: https://github.com/spider-gazelle/neuroplastic.git
+    version: 1.14.2
+
+  office365:
+    git: https://github.com/placeos/office365.git
+    version: 1.27.1
+
+  openssl_ext:
+    git: https://github.com/spider-gazelle/openssl_ext.git
+    version: 2.8.5
+
+  pars:
+    git: https://github.com/spider-gazelle/pars.git
+    version: 1.2.0
+
+  pegmatite:
+    git: https://github.com/jemc/crystal-pegmatite.git
+    version: 0.2.3+git.commit.f1b6d99b71774f82b6bd17b825d6d7fdd5de38f9
+
+  pg:
+    git: https://github.com/will/crystal-pg.git
+    version: 0.29.0
+
+  pg-orm:
+    git: https://github.com/spider-gazelle/pg-orm.git
+    version: 2.1.0
+
+  place_calendar:
+    git: https://github.com/placeos/calendar.git
+    version: 4.29.4
+
+  placeos-log-backend:
+    git: https://github.com/place-labs/log-backend.git
+    version: 0.13.0
+
+  placeos-models: # Overridden
+    git: https://github.com/placeos/models.git
+    version: 9.90.1+git.commit.e86f2d5c2be8357ead4dccc25ddcba712150024a
+
+  pool:
+    git: https://github.com/ysbaddaden/pool.git
+    version: 0.2.4
+
+  redis:
+    git: https://github.com/stefanwille/crystal-redis.git
+    version: 2.9.1
+
+  secrets-env: # Overridden
+    git: https://github.com/spider-gazelle/secrets-env.git
+    version: 1.3.1
+
+  tasker:
+    git: https://github.com/spider-gazelle/tasker.git
+    version: 2.1.4
+
+  timecop:
+    git: https://github.com/crystal-community/timecop.cr.git
+    version: 0.6.0
+
+  ulid:
+    git: https://github.com/place-labs/ulid.git
+    version: 0.1.2
+
+  upload-signer:
+    git: https://github.com/spider-gazelle/upload-signer.git
+    version: 0.2.1+git.commit.55191d74c9bb2c7c6813c3abd11fd80ccea0a29d
+
+  webmock:
+    git: https://github.com/manastech/webmock.cr.git
+    version: 0.14.0+git.commit.fde6b20d5b80401a967e044b1a3e80ee391bed60
 

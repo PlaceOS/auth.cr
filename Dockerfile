@@ -82,7 +82,7 @@ RUN for binary in /app/bin/*; do \
     done
 
 # Generate OpenAPI docs while we still have source code access
-RUN ./bin/app --docs --file=openapi.yml
+RUN ./bin/placeos-auth --docs > openapi.yml
 
 # Build a minimal docker image
 FROM scratch
@@ -114,9 +114,9 @@ COPY --from=build /app/openapi.yml /openapi.yml
 USER appuser:appuser
 
 # Spider-gazelle has a built in helper for health checks (change this as desired for your applications)
-HEALTHCHECK CMD ["/app", "-c", "http://127.0.0.1:3000/"]
+HEALTHCHECK CMD ["/placeos-auth", "-c", "http://127.0.0.1:3000/auth/healthz"]
 
 # Run the app binding on port 3000
 EXPOSE 3000
-ENTRYPOINT ["/app"]
-CMD ["/app", "-b", "0.0.0.0", "-p", "3000"]
+ENTRYPOINT ["/placeos-auth"]
+CMD ["/placeos-auth", "-b", "0.0.0.0", "-p", "3000"]

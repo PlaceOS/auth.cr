@@ -1,11 +1,80 @@
-version: '3'
+x-deployment-env: &deployment-env
+  ENV: ${ENV:-development}
+  SG_ENV: ${SG_ENV:-development}
+
+x-redis-client-env: &redis-client-env
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+
+x-postgresdb-client-env: &postgresdb-client-env
+  PG_HOST: ${PG_HOST:-postgres}
+  PG_PORT: ${PG_PORT:-5432}
+  PG_DB: ${PG_DB:-place_development}
+  PG_USER: ${PG_USER:-postgres}
+  PG_PASSWORD: ${PG_PASSWORD:-password}
+  PG_DATABASE: ${PG_DATABASE:-place_development}
+  PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://postgres:password@postgres:5432/place_development}
+
+x-auth-env: &auth-env
+  JWT_SECRET: ${JWT_SECRET:-}
+  JWT_ISSUER: ${JWT_ISSUER:-POS}
+  PLACE_URI: ${PLACE_URI:-}
+
 services:
-  # The Spider-Gazelle service
-  # run: `docker-compose build` to update the service
-  # run: `docker-compose up -d` to launch the service
-  sg:
-    build: .
-    ports:
-      - "3000:3000"
+  test:
+    image: placeos/service-spec-runner:${CRYSTAL_VERSION:-latest}
+    volumes:
+      - ${PWD}/spec:/app/spec
+      - ${PWD}/src:/app/src
+      - ${PWD}/lib:/app/lib
+      - ${PWD}/shard.lock:/app/shard.lock
+      - ${PWD}/shard.override.yml:/app/shard.override.yml
+      - ${PWD}/shard.yml:/app/shard.yml.input
+    depends_on:
+      - redis
+      - postgres
+      - migrator
+    security_opt:
+      - seccomp:unconfined
     environment:
-      SG_ENV: "production"
+      GITHUB_ACTION: ${GITHUB_ACTION:-}
+      <<: [
+        *deployment-env,
+        *redis-client-env,
+        *postgresdb-client-env,
+        *auth-env,
+      ]
+
+  redis:
+    image: eqalpha/keydb
+    restart: always
+    hostname: redis
+    healthcheck:
+      test: redis-cli ping
+    ports:
+      - 6379:6379
+
+  postgres:
+    hostname: postgres
+    image: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: place_development
+    ports:
+      - 5432:5432
+
+  migrator:
+    build:
+      context: ${PWD}/spec/migration
+    container_name: auth-migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GITHUB_ACTION: ${GITHUB_ACTION:-}
+      PG_DATABASE_URL: ${PG_DATABASE_URL:-postgresql://postgres:password@postgres:5432/place_development}

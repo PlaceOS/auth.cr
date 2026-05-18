@@ -1,0 +1,15 @@
+name: placeos-auth-migration
+version: 0.1.0
+crystal: ~> 1.4
+license: MIT
+
+targets:
+  migration:
+    main: src/migration.cr
+
+dependencies:
+  micrate:
+    github: amberframework/micrate
+    version: "0.12.0"
+  pg:
+    github: will/crystal-pg

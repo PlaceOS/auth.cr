@@ -1,58 +1,55 @@
-require "action-controller/logger"
+module PlaceOS::Auth
+  APP_NAME    = "auth"
+  API_VERSION = "v2"
 
-module App
-  NAME = "Spider-Gazelle"
-  {% begin %}
-    VERSION = {{ `shards version "#{__DIR__}"`.chomp.stringify.downcase }}
-  {% end %}
+  Log = ::Log.for(self)
 
-  Log         = ::Log.for(NAME)
-  LOG_BACKEND = ActionController.default_backend
+  # Calculate version, build time, commit at compile time
+  VERSION      = {{ system(%(shards version "#{__DIR__}")).chomp.stringify.downcase }}
+  BUILD_TIME   = {{ system("date -u").stringify }}
+  BUILD_COMMIT = {{ env("PLACE_COMMIT") || "DEV" }}
 
-  ENVIRONMENT   = ENV["SG_ENV"]? || "development"
-  IS_PRODUCTION = ENVIRONMENT == "production"
+  # Runtime environment
+  PROD = ENV["SG_ENV"]?.try(&.downcase) == "production"
 
-  DEFAULT_PORT          = (ENV["SG_SERVER_PORT"]? || 3000).to_i
-  DEFAULT_HOST          = ENV["SG_SERVER_HOST"]? || "127.0.0.1"
-  DEFAULT_PROCESS_COUNT = (ENV["SG_PROCESS_COUNT"]? || 1).to_i
+  # PlaceOS API used for API-key inspection. Kept for compatibility with
+  # the legacy `auth` service that delegated `X-API-Key` validation to
+  # the core engine; nil disables that fallback path.
+  PLACE_URI = ENV["PLACE_URI"]?
 
-  STATIC_FILE_PATH = ENV["PUBLIC_WWW_PATH"]? || "./www"
+  # Base64-encoded RSA private key used to sign issued JWTs (RS256).
+  # The Ruby service used the matching public key under the same name;
+  # rotating this value is a breaking change for token consumers.
+  JWT_SECRET = ENV["JWT_SECRET"]?
 
-  COOKIE_SESSION_KEY    = ENV["COOKIE_SESSION_KEY"]? || "_spider_gazelle_"
-  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]? || "4f74c0b358d5bab4000dd3c75465dc2c"
+  # Default token + session lifetimes (per-Authority override available
+  # via `authority.internals["session_timeout"]`).
+  SESSION_TIMEOUT_MINUTES = (ENV["SESSION_TIMEOUT_MINUTES"]? || "1440").to_i
 
-  def self.running_in_production?
-    IS_PRODUCTION
+  # Redis channel that receives `{user_id, provider}` JSON after each
+  # successful login (consumed by PlaceOS to invalidate caches etc.).
+  REDIS_URL            = ENV["REDIS_URL"]?
+  LOGIN_EVENTS_CHANNEL = ENV["LOGIN_EVENTS_CHANNEL"]? || "placeos/auth/login"
+
+  # Session cookie name and path. The wire format is not compatible with
+  # the legacy Rails `_coauth_session`; we keep the name for nginx route
+  # familiarity but anyone holding an old cookie will be re-prompted to
+  # sign in at cutover, which is fine.
+  SESSION_COOKIE_NAME = "_coauth_session"
+  SESSION_COOKIE_PATH = "/auth"
+
+  # Secret used by `ActionController::Session::MessageEncryptor` to
+  # encrypt + sign the session cookie. Must be at least 32 bytes for
+  # AES-256. In production this MUST be set; the dev fallback generates
+  # a new key per boot, which deliberately invalidates existing cookies.
+  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]? || begin
+    Log.warn { "COOKIE_SESSION_SECRET not set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
+    Random::Secure.hex(32)
   end
 
-  # flag to indicate if we're outputting trace logs
-  class_getter? trace : Bool = false
+  # OIDC issuer claim. Kept as "POS" so existing services keep validating
+  # tokens issued before the cutover.
+  JWT_ISSUER = ENV["JWT_ISSUER"]? || "POS"
 
-  # Registers callbacks for USR1 signal
-  #
-  # **`USR1`**
-  # toggles `:trace` for _all_ `Log` instances
-  # `namespaces`'s `Log`s to `:info` if `production` is `true`,
-  # otherwise it is set to `:debug`.
-  # `Log`'s not registered under `namespaces` are toggled to `default`
-  #
-  # ## Usage
-  # - `$ kill -USR1 ${the_application_pid}`
-  def self.register_severity_switch_signals : Nil
-    # Allow signals to change the log level at run-time
-    {% unless flag?(:win32) %}
-      Signal::USR1.trap do |signal|
-        @@trace = !@@trace
-        level = @@trace ? ::Log::Severity::Trace : (running_in_production? ? ::Log::Severity::Info : ::Log::Severity::Debug)
-        puts " > Log level changed to #{level}"
-        ::Log.builder.bind "#{NAME}.*", level, LOG_BACKEND
-
-        # Ignore standard behaviour of the signal
-        signal.ignore
-
-        # we need to re-register our interest in the signal
-        register_severity_switch_signals
-      end
-    {% end %}
-  end
+  class_getter? production : Bool = PROD
 end

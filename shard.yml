@@ -1,19 +1,82 @@
-name: spider-gazelle
+name: placeos-auth
 version: 2.0.0
+crystal: ">= 1.1.1"
+
+targets:
+  placeos-auth:
+    main: src/app.cr
 
 dependencies:
-  # The server framework
+  # Server framework
   action-controller:
     github: spider-gazelle/action-controller
-    version: ~> 7.0
+    version: ~> 7.2
+
+  # PostgreSQL ORM
+  pg-orm:
+    github: spider-gazelle/pg-orm
+
+  # PlaceOS data models (User, Authority, ApiKey, OAuthAuthentication, SamlAuthentication, ...)
+  placeos-models:
+    github: placeos/models
+    branch: auth-replacement
+
+  # OAuth2 client (replaces OmniAuth :oauth2 / :developer)
+  # NOTE: must match the source `multi_auth_saml` pins transitively
+  # (`msa7/multi_auth`) — using the spider-gazelle fork triggers an
+  # "ambiguous sources" error during resolution.
+  multi_auth:
+    github: msa7/multi_auth
+    branch: master
+
+  # SAML SP (replaces OmniAuth :saml / :generic_adfs)
+  multi_auth_saml:
+    github: spider-gazelle/multi_auth_saml
+
+  # OAuth2 / OIDC server (replaces Doorkeeper + doorkeeper-openid-connect)
+  authly:
+    github: place-labs/authly
+
+  # JSON Web Token support
+  jwt:
+    github: crystal-community/jwt
+    version: ~> 1
+
+  # Secrets parsing
+  secrets-env:
+    github: spider-gazelle/secrets-env
+    version: ~> 1
+
+  # Email validation
+  CrystalEmail:
+    github: place-labs/CrystalEmail
+    version: ~> 0.2
+
+  # Redis client (login event publishing)
+  redis:
+    github: stefanwille/crystal-redis
+
+  # Centralised logging configuration
+  placeos-log-backend:
+    github: place-labs/log-backend
+    version: ">= 0.11.2"
 
 development_dependencies:
   ameba:
-    github: veelenga/ameba
+    github: crystal-ameba/ameba
+
   hot_topic:
     github: jgaskins/hot_topic
 
-# compile target
-targets:
-  app:
-    main: src/app.cr
+  # Mock data generation for specs
+  faker:
+    github: askn/faker
+
+  # HTTP mocking for outbound calls
+  webmock:
+    github: manastech/webmock.cr
+    branch: master
+
+  # Time mocking
+  timecop:
+    github: crystal-community/timecop.cr

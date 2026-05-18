@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eu
+
+# Cleanup containers on Ctrl-C
+trap "docker compose down &> /dev/null; exit 2" 2
+
+docker compose pull
+docker compose build
+
+exit_code="0"
+docker compose run \
+        --rm \
+        test "$@" \
+    || exit_code="$?"
+
+docker compose down &> /dev/null
+
+exit ${exit_code}

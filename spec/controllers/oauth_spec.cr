@@ -245,5 +245,88 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    # ---- POST /auth/revoke ------------------------------------------
+
+    describe "POST /auth/revoke" do
+      it "marks an issued access token revoked" do
+        user, app = new_application.call(
+          "topsecret",
+          "https://app.example/cb",
+          "public",
+        )
+
+        token_result = form_post.call("/auth/token", {
+          "grant_type"    => "client_credentials",
+          "client_id"     => app.uid.as(String),
+          "client_secret" => app.secret,
+          "scope"         => "public",
+        })
+        token_result.status_code.should eq 200
+        access_token = JSON.parse(token_result.body)["access_token"].as_s
+
+        # Pre-revoke: authly.valid? returns true
+        ::Authly.valid?(access_token).should be_true
+
+        revoke_result = form_post.call("/auth/revoke", {
+          "token" => access_token,
+        })
+        revoke_result.status_code.should eq 200
+
+        ::Authly.valid?(access_token).should be_false
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "returns 200 for an unknown / malformed token (RFC 7009)" do
+        result = form_post.call("/auth/revoke", {
+          "token" => "not-actually-a-jwt",
+        })
+        result.status_code.should eq 200
+      end
+    end
+
+    # ---- GET /auth/userinfo -----------------------------------------
+
+    describe "GET /auth/userinfo" do
+      it "returns OIDC claims for a valid Bearer JWT" do
+        _, headers = Spec::Authentication.authentication
+        headers["Host"] = "localhost"
+
+        result = client.get("/auth/userinfo", headers: headers)
+        result.status_code.should eq 200
+        body = JSON.parse(result.body)
+        body["sub"].as_s.should_not be_empty
+        body["email"].as_s.should contain "@place.tech"
+        body["full_name"].as_s.should_not be_empty
+      end
+
+      it "401s without a Bearer token" do
+        result = client.get("/auth/userinfo", headers: HTTP::Headers{"Host" => "localhost"})
+        result.status_code.should eq 401
+      end
+    end
+  end
+
+  describe Discovery do
+    describe "GET /.well-known/openid-configuration" do
+      it "advertises the auth.cr endpoint set" do
+        result = client.get(
+          "/.well-known/openid-configuration",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 200
+        body = JSON.parse(result.body)
+        body["token_endpoint"].as_s.should end_with "/auth/token"
+        body["authorization_endpoint"].as_s.should end_with "/auth/authorize"
+        body["userinfo_endpoint"].as_s.should end_with "/auth/userinfo"
+        body["revocation_endpoint"].as_s.should end_with "/auth/revoke"
+        body["grant_types_supported"].as_a.map(&.as_s).should_not contain "password"
+        body["grant_types_supported"].as_a.map(&.as_s).should_not contain "implicit"
+        body["grant_types_supported"].as_a.map(&.as_s).should contain "authorization_code"
+        body["id_token_signing_alg_values_supported"].as_a.map(&.as_s).should contain "RS256"
+      end
+    end
   end
 end

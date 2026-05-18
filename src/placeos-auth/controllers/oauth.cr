@@ -210,5 +210,88 @@ module PlaceOS::Auth
 
       redirect_to target, :found
     end
+
+    # --- POST /auth/revoke -----------------------------------------------
+
+    # RFC 7009 token revocation. Always responds 200, including when
+    # the token is unknown / malformed / already revoked, so the
+    # client can't infer state by side channel.
+    @[AC::Route::POST("/revoke", status_code: HTTP::Status::OK)]
+    def revoke(
+      token : String,
+      token_type_hint : String? = nil,
+    ) : Nil
+      ::Authly.revoke(token)
+    rescue
+      # Swallow — RFC says we MUST NOT signal token presence via status.
+      Log.debug { {action: "oauth.revoke", message: "ignored failure (RFC 7009)"} }
+    end
+
+    # --- GET /auth/userinfo ----------------------------------------------
+
+    # OIDC `userinfo`. The Bearer token's `sub` claim points at the
+    # `User` row; we surface the same claim set the ID token would
+    # have (see `AuthlyAdapter::Owner#id_token`).
+    @[AC::Route::GET("/userinfo")]
+    def userinfo : Hash(String, String | Int64)
+      user_token = authorize!
+      claims = AuthlyAdapter::Owner.new.id_token(user_token.id)
+      raise Error::Unauthorized.new("unknown subject") if claims.empty?
+      claims
+    end
+  end
+
+  # OIDC discovery document. Spec requires this lives at the root,
+  # so it can't be a route on `OAuth` (which is mounted at `/auth`).
+  class Discovery < Application
+    base "/"
+
+    # See `OAuth` for the rest of the OAuth2/OIDC surface area.
+    struct Response
+      include JSON::Serializable
+
+      getter issuer : String
+      getter authorization_endpoint : String
+      getter token_endpoint : String
+      getter userinfo_endpoint : String
+      getter revocation_endpoint : String
+      getter end_session_endpoint : String?
+      getter scopes_supported : Array(String)
+      getter response_types_supported : Array(String)
+      getter grant_types_supported : Array(String)
+      getter subject_types_supported : Array(String)
+      getter id_token_signing_alg_values_supported : Array(String)
+      getter token_endpoint_auth_methods_supported : Array(String)
+      getter code_challenge_methods_supported : Array(String)
+      getter claims_supported : Array(String)
+
+      def initialize(issuer : String, logout : String? = nil)
+        base = issuer.rstrip('/')
+        @issuer = base
+        @authorization_endpoint = "#{base}/auth/authorize"
+        @token_endpoint = "#{base}/auth/token"
+        @userinfo_endpoint = "#{base}/auth/userinfo"
+        @revocation_endpoint = "#{base}/auth/revoke"
+        @end_session_endpoint = logout
+        @scopes_supported = ["openid", "profile", "email", "offline_access", "public"]
+        # `implicit` and `password` are intentionally absent.
+        @response_types_supported = ["code"]
+        @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token"]
+        @subject_types_supported = ["public"]
+        @id_token_signing_alg_values_supported = ["RS256"]
+        @token_endpoint_auth_methods_supported = ["client_secret_post"]
+        @code_challenge_methods_supported = ["S256"]
+        @claims_supported = ["sub", "iss", "aud", "exp", "iat", "email", "full_name", "given_name", "family_name", "nickname", "phone_number", "preferred_username"]
+      end
+    end
+
+    @[AC::Route::GET("/.well-known/openid-configuration")]
+    def openid_configuration : Response
+      authority = current_authority
+      scheme = request.headers["X-Forwarded-Proto"]? || (PlaceOS::Auth.production? ? "https" : "http")
+      host = request.hostname || "localhost"
+      issuer = "#{scheme}://#{host}"
+      Response.new(issuer: issuer, logout: authority.try(&.logout_url))
+    end
   end
 end

@@ -5,6 +5,7 @@ require "openssl"
 require "./authly_adapter/client"
 require "./authly_adapter/claims_provider"
 require "./authly_adapter/owner"
+require "./authly_adapter/token_store"
 
 module PlaceOS::Auth::AuthlyAdapter
   Log = ::PlaceOS::Auth::Log.for(self)
@@ -64,7 +65,8 @@ module PlaceOS::Auth::AuthlyAdapter
       config.owners = Owner.new
       config.clients = Client.new
       config.claims_provider = ClaimsProvider.new
-      config.persist_jwt_tokens = false # Phase 3c swaps this on with a PG store
+      config.token_store = TokenStore.new
+      config.persist_jwt_tokens = true
       config.enforce_pkce = false
       config.allow_dynamic_registration = false
     end

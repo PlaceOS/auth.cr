@@ -50,8 +50,14 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [x] Reject `grant_type=password` with `unsupported_grant_type`
 - [x] Open-class patch for `Authly::Code#jwt` to read live `Authly.config.{issuer,code_ttl}` (upstream captures at load time)
 - [x] Specs: client_credentials happy + 401 unknown + 401 bad secret + password rejection + unknown grant + authorization_code → refresh round-trip + authorize redirect/unauth/unknown response_type/unregistered redirect — 9 specs all green
-- [ ] `AuthlyTokenStore` — persist + revoke (Phase 3c, blocked on OAuthToken model)
-- [ ] `/auth/revoke`, `/auth/userinfo`, `/.well-known/openid-configuration` (Phase 3d)
+- [x] OAuthToken model + migration added to placeos-models@auth-replacement, pushed
+- [x] `AuthlyAdapter::TokenStore` — PG-backed, jti-keyed, marker-row on revoke-without-store
+- [x] `Authly.config.persist_jwt_tokens = true`
+- [x] `POST /auth/revoke` (RFC 7009; always 200)
+- [x] `GET /auth/userinfo` (Bearer-required, OIDC claims via Owner#id_token)
+- [x] `GET /.well-known/openid-configuration` (separate `Discovery < Application` controller mounted at `/`)
+- [x] `Sessions#destroy` revokes any presented Bearer JWT
+- [x] Specs: revoke happy + revoke unknown + userinfo happy + userinfo 401 + discovery (32/32 ./test green)
 
 ## Phase 4 — OAuth2 client (multi_auth)
 - [ ] Per-request multi_auth provider registration from `oauth_strat`

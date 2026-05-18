@@ -103,9 +103,16 @@ module PlaceOS::Auth
       end
       remove_session
 
-      # TODO(phase 3): revoke any Bearer token presented on this request
-      # via authly's token store. Today the Bearer token check is moot
-      # because authly isn't wired yet.
+      # If the caller presented a Bearer JWT, revoke it through authly
+      # so the JTI is marked revoked. Errors are intentionally swallowed
+      # — RFC 7009 forbids leaking presence/state info.
+      if (bearer = acquire_token)
+        begin
+          ::Authly.revoke(bearer)
+        rescue ex
+          Log.debug(exception: ex) { {action: "logout.revoke", message: "ignored failure (RFC 7009)"} }
+        end
+      end
 
       target = if continue && (safe = sanitize_continue(continue))
                  safe

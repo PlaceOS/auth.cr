@@ -39,6 +39,13 @@ _(append entries here as the user pushes back on anything)_
 ## DoorkeeperApplication.secret is regenerated (2026-05-19)
 - `placeos-models`' `DoorkeeperApplication` has a `before_create :generate_secret` callback that overwrites whatever `secret` you set on a fresh record with `Random::Secure.urlsafe_base64(40)`. Specs must read `app.secret` AFTER `save!` if they need the real value.
 
+## Migrator Docker layer caching (2026-05-19)
+- `spec/migration/Dockerfile` clones `placeos/models@auth-replacement` via `RUN git clone ...`. Docker caches this layer aggressively. When new migrations are pushed to the branch, `./test` won't pick them up until you force a rebuild:
+  ```
+  docker compose build --no-cache migrator
+  ```
+  Symptom: `relation "..." does not exist (PQ::PQError)` from the token store / models. Worth scripting into `./test` later — for now it's manual after each models push.
+
 ## Spec helper gotchas (2026-05-19)
 - `PlaceOS::Model::Generator.jwt` hard-codes `domain: Faker::Internet.email`. That works in rest-api specs only by accident: `URI.parse("name@example.com").host` returns nil and `URI.parse("localhost").host` also returns nil, so `ensure_matching_domain`'s `nil == nil` check passes. Any current_user implementation that falls back to the raw domain string when host is nil — which is the *correct* check in production — breaks against this seed data.
   - **Fix:** build the JWT manually in auth.cr's `Spec::Authentication.authentication` with `domain: authority.domain` rather than calling `Model::Generator.jwt`.

@@ -77,9 +77,12 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [x] Full SAMLResponse signature-validation round-trip deferred — `multi_auth_saml`'s own spec suite covers SAML XML parsing; the auth.cr-specific bits (user mapping, state check) are exercised through the shared code path by `provider_callbacks_spec.cr`
 
 ## Phase 6 — Extensions
-- [ ] Redis login event publisher (`placeos/auth/login`)
-- [ ] Crystal-native `before_signup` / `after_login` hooks
-- [ ] Finalise API key validator + X-API-Key header support
+- [x] Redis login event publisher (`LoginEvents.publish` → `placeos/auth/login`)
+- [x] Wired into `Sessions#signin` (provider="internal") and `ProviderCallbacks#callback` (provider=oauth_user.provider)
+- [x] Test-swappable publisher (`LoginEvents.publisher` class_property)
+- [x] Specs: signin → "internal" event, OAuth callback → provider name event (2 specs)
+- [ ] Crystal-native `before_signup` / `after_login` hooks — deferred. The Ruby version was a Rails-initialiser plug-in pattern; auth.cr is a standalone binary so there's no obvious consumer. Add when a concrete need arises.
+- [x] X-API-Key header already supported via `Utils::CurrentUser#extract_api_key` (Phase 1)
 
 ## Phase 7 — Cutover prep
 - [ ] Wire-format diff vs Ruby service (cookies, JWT, response codes/headers)

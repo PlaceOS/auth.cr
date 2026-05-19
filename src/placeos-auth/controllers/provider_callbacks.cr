@@ -99,6 +99,8 @@ module PlaceOS::Auth
       remove_session
       new_session(result.user)
 
+      LoginEvents.publish(result.user, oauth_user.provider)
+
       target = consume_continue || "/"
       redirect_to target.gsub(' ', "%20"), :see_other
     end

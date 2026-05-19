@@ -56,8 +56,7 @@ module PlaceOS::Auth
       remove_session
       new_session(user)
 
-      # TODO(phase 6): publish `{user_id, provider: "internal"}` to the
-      # `placeos/auth/login` Redis channel.
+      LoginEvents.publish(user, "internal")
 
       if (continue = body.continue.presence)
         target = sanitize_continue(continue) || "/"

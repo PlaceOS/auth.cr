@@ -35,6 +35,25 @@ module PlaceOS::Auth
       publisher.call(uid, provider)
     end
 
+    # Records a successful login: bumps `login_count`, stamps
+    # `last_login`, persists, and publishes the Redis event. Mirrors
+    # the legacy Ruby `Authentication.after_login_block` which did
+    # the same two things (counter + Redis) atomically.
+    #
+    # Persistence failures are logged but not raised — the request
+    # has already established a session at this point and we don't
+    # want a transient DB blip to bounce the user back to the login
+    # page.
+    def self.record_login(user : ::PlaceOS::Model::User, provider : String) : Nil
+      user.login_count = (user.login_count || 0_i64) + 1
+      user.last_login = Time.utc
+      user.save
+    rescue ex
+      Log.warn(exception: ex) { {action: "login_events.record_login", message: "ignored persistence failure"} }
+    ensure
+      publish(user, provider)
+    end
+
     # :nodoc:
     def self.publish_to_redis(user_id : String, provider : String) : Nil
       redis_url = REDIS_URL

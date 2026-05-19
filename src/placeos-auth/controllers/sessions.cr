@@ -56,7 +56,7 @@ module PlaceOS::Auth
       remove_session
       new_session(user)
 
-      LoginEvents.publish(user, "internal")
+      LoginEvents.record_login(user, "internal")
 
       if (continue = body.continue.presence)
         target = sanitize_continue(continue) || "/"

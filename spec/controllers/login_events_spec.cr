@@ -45,6 +45,32 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "bumps `login_count` and stamps `last_login` on successful signin" do
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        password = "ok-password-1234"
+        user = ::PlaceOS::Model::Generator.user(authority)
+        user.password = password
+        user.save!
+
+        before_count = user.login_count.as(Int64)
+        before_login = Time.utc
+
+        body = {email: user.email.to_s, password: password}.to_json
+        headers = HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/json",
+        }
+        result = client.post("/auth/signin", headers: headers, body: body)
+        result.status_code.should eq 202
+
+        reloaded = ::PlaceOS::Model::User.find!(user.id.as(String))
+        reloaded.login_count.should eq before_count + 1
+        reloaded.last_login.should_not be_nil
+        reloaded.last_login.not_nil!.should be >= before_login
+      ensure
+        user.try &.destroy
+      end
+
       it "fires `{user_id, oauth2}` after a successful OAuth callback" do
         calls = [] of Tuple(String, String)
         LoginEvents.publisher = ->(uid : String, provider : String) {

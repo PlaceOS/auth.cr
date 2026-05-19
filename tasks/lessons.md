@@ -39,6 +39,15 @@ _(append entries here as the user pushes back on anything)_
 ## DoorkeeperApplication.secret is regenerated (2026-05-19)
 - `placeos-models`' `DoorkeeperApplication` has a `before_create :generate_secret` callback that overwrites whatever `secret` you set on a fresh record with `Random::Secure.urlsafe_base64(40)`. Specs must read `app.secret` AFTER `save!` if they need the real value.
 
+## multi_auth shard quirks (2026-05-19)
+- `multi_auth.cr` top-level does `require "./multi_auth/*"` — globs ONE level only. Providers under `multi_auth/providers/` are NOT auto-required. Add an explicit `require "multi_auth/providers/generic_oauth2"` (or whichever you use).
+- `MultiAuth.config(provider, &builder)` is the dynamic registration path — the only one that works with `GenericOAuth2`, because the static `GenericOAuth2.new(redirect_uri, key, secret)` 3-arg constructor raises by design. Use the factory form.
+- `multi_auth` does NOT validate the OAuth `state` parameter — it only echoes it through. The application MUST stash a random state on the session before kickoff and check `request.params["state"]` on callback.
+- `request.query_params` is `URI::Params` (Enumerable of `{String, String}`) — exactly the shape `Engine#user(params)` wants. No conversion needed.
+
+## Spec module shadowing (2026-05-19)
+- Inside `module PlaceOS::Auth`, an unqualified `Spec` resolves to `PlaceOS::Auth::Spec` (our own helper module), NOT the Crystal stdlib `::Spec`. Calling `Spec.before_each { ... }` errors out as "undefined method ... for PlaceOS::Auth::Spec:Module". Qualify as `::Spec.before_each` to reach the stdlib hooks.
+
 ## Migrator Docker layer caching (2026-05-19)
 - `spec/migration/Dockerfile` clones `placeos/models@auth-replacement` via `RUN git clone ...`. Docker caches this layer aggressively. When new migrations are pushed to the branch, `./test` won't pick them up until you force a rebuild:
   ```

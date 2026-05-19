@@ -60,15 +60,15 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [x] Specs: revoke happy + revoke unknown + userinfo happy + userinfo 401 + discovery (32/32 ./test green)
 
 ## Phase 4 — OAuth2 client (multi_auth)
-- [ ] Per-request multi_auth provider registration from `oauth_strat`
-- [ ] `Sessions#callback` (GET/POST `/auth/:provider/callback`)
-- [ ] Branch: signed-in user linking new provider
-- [ ] Branch: new user + new auth (with before_signup hook)
-- [ ] Branch: existing auth + existing user (login)
-- [ ] Path alias `/auth/:provider/callback/:strategy`
-- [ ] Azure B2C redirect rewrite
-- [ ] Inline auto-create user in callback when no `UserAuthLookup` exists (replaces dropped `/auth/signup`)
-- [ ] Specs for each branch + the Azure rewrite
+- [x] Per-request multi_auth provider registration from `oauth_strat` (factory under `oauth2` name)
+- [x] `ProviderCallbacks` controller — `GET /auth/:provider` kickoff + `GET/POST /auth/:provider/callback` consume
+- [x] `Utils::OAuthUserMapper` covering all three branches: existing lookup (login), no-lookup + signed-in (link), no-lookup + anonymous (auto-create)
+- [x] Path alias `/auth/:provider/callback/:strategy`
+- [x] CSRF state validation via the session cookie
+- [x] Specs: 5 — kickoff redirect, kickoff 404 unknown strat, callback creates user, state mismatch 401, existing lookup logs in
+- [x] `./test`: 37/37 green
+- [ ] Azure B2C redirect rewrite — deferred until a concrete tenant needs it
+- [ ] `before_signup` extension hook — wired in Phase 6 alongside `after_login`
 
 ## Phase 5 — SAML / ADFS
 - [ ] Per-request `multi_auth_saml` provider registration from `adfs_strat`

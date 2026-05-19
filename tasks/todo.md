@@ -85,10 +85,28 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [x] X-API-Key header already supported via `Utils::CurrentUser#extract_api_key` (Phase 1)
 
 ## Phase 7 — Cutover prep
-- [ ] Wire-format diff vs Ruby service (cookies, JWT, response codes/headers)
-- [ ] Dockerfile (mirror rest-api)
-- [ ] README env var documentation
-- [ ] Changelog entry
+- [x] Wire-format spot checks vs Ruby — one delta found and fixed (`GET /auth/failure` now 200, matching legacy). JWT shape, /auth/authority response, OAuth error envelope, signin/logout/login statuses, OIDC discovery shape all match.
+- [x] Dockerfile polish — done in Phase 0 (renamed binary `/placeos-auth`, `/auth/healthz` probe).
+- [x] README rewrite — endpoint inventory, env-var reference, run / test / deploy commands, cutover checklist.
+- [x] Cutover deltas documented in README under "Migration from the Ruby service"
+- [ ] Changelog entry — deferred; the git log captures every phase
 
-## Review (filled in at the end)
-- _Outcome summary goes here._
+## Review
+
+41/41 specs green across 7 commits on master + 1 on `placeos/models@auth-replacement`.
+
+| # | Commit | Phase | Δ specs |
+|---|---|---|---|
+| 1 | `6128be6` | 0–2 scaffolding + foundations + local auth | 18 |
+| 2 | `3a9a4fb` | 3a/b authly + /token, /authorize | +9 |
+| 3 | `24cd209` | 3c/d token store + /revoke, /userinfo, discovery | +5 |
+| 4 | `4453bde` | 4 OAuth2 client via multi_auth | +5 |
+| 5 | `397cb6f` | 5 SAML SP via multi_auth_saml | +2 |
+| 6 | `0760bf5` | 6 Redis login events | +2 |
+| 7 | (this) | 7 cutover prep — README + failure-status tweak | 0 |
+
+**Deferred (post-cutover follow-ups):**
+- Azure B2C redirect rewrite (`RewriteRedirectResponse` Ruby middleware) — only matters if a real B2C tenant is on the cutover list
+- JWKS endpoint (`/.well-known/jwks.json`) — downstream PlaceOS services validate via baked-in `JWT_SECRET`, so not urgent
+- `before_signup` / `after_login` Crystal-native hooks — Rails-initialiser pattern, no obvious consumer in the binary world
+- Upstream PRs to `placeos-models` (Generator.jwt domain, User#password attribute shadowing) and `authly` (`AuthorizableClient` missing `allowed_grant_type?`, struct-const captures) — captured in `tasks/lessons.md`

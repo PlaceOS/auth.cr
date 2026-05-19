@@ -6,7 +6,11 @@ module PlaceOS::Auth
   class Failures < Application
     base "/auth"
 
-    @[AC::Route::GET("/failure", content_type: "text/html", status_code: HTTP::Status::UNAUTHORIZED)]
+    # NB: 200 OK, not 401 — matches the Ruby service so any client
+    # automation that hard-codes `if response.status == 200` keeps
+    # working at cutover. The status doesn't carry semantics for any
+    # caller; the body content is what counts.
+    @[AC::Route::GET("/failure", content_type: "text/html")]
     def show : String
       <<-HTML
       <!doctype html>

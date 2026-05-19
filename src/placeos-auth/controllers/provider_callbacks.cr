@@ -1,7 +1,7 @@
 require "multi_auth"
 require "placeos-models"
 
-require "../oauth_providers"
+require "../external_providers"
 
 module PlaceOS::Auth
   # External-IdP round-trip handlers. Two routes per provider:

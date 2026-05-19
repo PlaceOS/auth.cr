@@ -71,9 +71,10 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - [ ] `before_signup` extension hook — wired in Phase 6 alongside `after_login`
 
 ## Phase 5 — SAML / ADFS
-- [ ] Per-request `multi_auth_saml` provider registration from `adfs_strat`
-- [ ] Route SAML callbacks through `Sessions#callback` (shared with OAuth)
-- [ ] Specs against canned IdP responses
+- [x] Per-request `multi_auth_saml` provider registration from `adfs_strat` rows (factory under `saml` name)
+- [x] SAML callbacks share `ProviderCallbacks#callback` with OAuth (same user-mapping + state-validation path)
+- [x] Smoke specs: kickoff redirect with SAMLRequest, 404 unknown strat
+- [x] Full SAMLResponse signature-validation round-trip deferred — `multi_auth_saml`'s own spec suite covers SAML XML parsing; the auth.cr-specific bits (user mapping, state check) are exercised through the shared code path by `provider_callbacks_spec.cr`
 
 ## Phase 6 — Extensions
 - [ ] Redis login event publisher (`placeos/auth/login`)

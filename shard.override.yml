@@ -1,11 +1,4 @@
 dependencies:
-  # placeos-models tracks the `auth-replacement` branch while migrations
-  # for authly's token store / OIDC tables land. Once those are merged
-  # into master and a release cut, this override can be removed.
-  placeos-models:
-    github: placeos/models
-    branch: auth-replacement
-
   secrets-env:
     github: spider-gazelle/secrets-env
 

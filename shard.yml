@@ -16,10 +16,12 @@ dependencies:
   pg-orm:
     github: spider-gazelle/pg-orm
 
-  # PlaceOS data models (User, Authority, ApiKey, OAuthAuthentication, SamlAuthentication, ...)
+  # PlaceOS data models (User, Authority, ApiKey, OAuthAuthentication,
+  # SamlAuthentication, OAuthToken, ...). The `OAuthToken` migration
+  # landed on master with the auth-replacement merge, so this tracks
+  # master like the rest of the PlaceOS stack.
   placeos-models:
     github: placeos/models
-    branch: auth-replacement
 
   # OAuth2 client (replaces OmniAuth :oauth2 / :developer)
   # NOTE: must match the source `multi_auth_saml` pins transitively

@@ -1,5 +1,12 @@
-FROM 84codes/crystal:latest-alpine AS build
+ARG CRYSTAL_VERSION=latest
+
+FROM placeos/crystal:$CRYSTAL_VERSION AS build
 WORKDIR /app
+
+# Set the commit via a build arg
+ARG PLACE_COMMIT="DEV"
+# Set the platform version via a build arg
+ARG PLACE_VERSION="DEV"
 
 # Create a non-privileged user, defaults are appuser:10001
 ARG IMAGE_UID="10001"
@@ -16,48 +23,10 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-# Add dependencies commonly required for building crystal applications
-# hadolint ignore=DL3018
-RUN apk add \
-  --update \
-  --no-cache \
-    gcc \
-    make \
-    autoconf \
-    automake \
-    libtool \
-    patch \
-    ca-certificates \
-    yaml-dev \
-    yaml-static \
-    git \
-    bash \
-    iputils \
-    libelf \
-    gmp-dev \
-    libxml2-dev \
-    musl-dev \
-    pcre-dev \
-    zlib-dev \
-    zlib-static \
-    libunwind-dev \
-    libunwind-static \
-    libevent-dev \
-    libevent-static \
-    libssh2-static \
-    lz4-dev \
-    lz4-static \
-    tzdata \
-    curl
-
-# Already included in the image
-# openssl-dev
-# openssl-libs-static
+# Install package updates since image release
+RUN apk update && apk --no-cache --quiet upgrade
 
 RUN update-ca-certificates
-
-# Install any additional dependencies
-# RUN apk add libssh2 libssh2-dev
 
 # Install shards for caching
 COPY shard.yml shard.yml
@@ -70,10 +39,14 @@ RUN shards install --production --ignore-crystal-version --skip-postinstall --sk
 COPY ./src /app/src
 
 # Build application
-RUN shards build --production --release --error-trace
+RUN UNAME_AT_COMPILE_TIME=true \
+    PLACE_COMMIT=$PLACE_COMMIT \
+    PLACE_VERSION=$PLACE_VERSION \
+    shards build --production --error-trace --static
+
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
-# Extract binary dependencies (uncomment if not compiling a static build)
+# Extract binary dependencies
 RUN for binary in /app/bin/*; do \
         ldd "$binary" | \
         tr -s '[:blank:]' '\n' | \
@@ -83,6 +56,8 @@ RUN for binary in /app/bin/*; do \
 
 # Generate OpenAPI docs while we still have source code access
 RUN ./bin/placeos-auth --docs > openapi.yml
+
+RUN git config --system http.sslCAInfo /etc/ssl/certs/ca-certificates.crt
 
 # Build a minimal docker image
 FROM scratch
@@ -113,7 +88,7 @@ COPY --from=build /app/openapi.yml /openapi.yml
 # Use an unprivileged user.
 USER appuser:appuser
 
-# Spider-gazelle has a built in helper for health checks (change this as desired for your applications)
+# Spider-gazelle has a built in helper for health checks
 HEALTHCHECK CMD ["/placeos-auth", "-c", "http://127.0.0.1:3000/auth/healthz"]
 
 # Run the app binding on port 3000

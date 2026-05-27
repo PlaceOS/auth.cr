@@ -79,7 +79,7 @@ shards:
 
   future:
     git: https://github.com/crystal-community/future.cr.git
-    version: 1.0.0
+    version: 1.1.0
 
   google:
     git: https://github.com/placeos/google.git
@@ -159,7 +159,7 @@ shards:
 
   placeos-models:
     git: https://github.com/placeos/models.git
-    version: 9.93.0
+    version: 9.94.0
 
   pool:
     git: https://github.com/ysbaddaden/pool.git
@@ -179,7 +179,7 @@ shards:
 
   tasker:
     git: https://github.com/spider-gazelle/tasker.git
-    version: 3.0.0
+    version: 3.0.1
 
   timecop:
     git: https://github.com/crystal-community/timecop.cr.git

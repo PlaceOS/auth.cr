@@ -133,6 +133,49 @@ module PlaceOS::Auth
       end
     end
 
+    describe "token lifetime" do
+      # The legacy Ruby service issues 2-hour (7200s) access tokens.
+      # authly's AccessToken#expires_in captures the default 1-hour TTL at
+      # class-load time (before configure! runs), so the response under-
+      # reported the lifetime while the JWT exp claim was a full 2 hours.
+      it "reports expires_in consistent with the JWT exp (~7200s)" do
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        user = ::PlaceOS::Model::Generator.user(authority).tap do |u|
+          u.password = "ignored-#{Random.rand(99999)}"
+          u.save!
+        end
+        app = ::PlaceOS::Model::DoorkeeperApplication.new
+        app.name = "ttl-test-#{Random.rand(99999)}"
+        app.redirect_uri = "https://app.example/cb"
+        app.scopes = "public"
+        app.owner_id = user.id.as(String)
+        app.save!
+
+        headers = HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/x-www-form-urlencoded",
+        }
+        body = URI::Params.build do |fp|
+          fp.add("grant_type", "client_credentials")
+          fp.add("client_id", app.uid.as(String))
+          fp.add("client_secret", app.secret)
+          fp.add("scope", "public")
+        end
+        result = client.post("/auth/token", headers: headers, body: body)
+        result.status_code.should eq 200
+        parsed = JSON.parse(result.body)
+
+        parsed["expires_in"].as_i64.should be >= 7100
+        parsed["expires_in"].as_i64.should be <= 7200
+
+        claims = decode_claims.call(parsed["access_token"].as_s)
+        (claims["exp"].as_i - claims["iat"].as_i).should be_close(7200, 5)
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
+
     describe "claim set" do
       # The legacy Ruby token carries no `cid` claim; authly adds one by
       # default. Drop it so the emitted claim set matches Doorkeeper's.

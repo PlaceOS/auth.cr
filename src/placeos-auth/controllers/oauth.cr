@@ -38,10 +38,14 @@ module PlaceOS::Auth
         @id_token = at.id_token
         @scope = at.scope.presence
 
-        # `Authly::AccessToken#expires_in` is initialised to an
-        # absolute unix timestamp, not the relative `expires_in` of
-        # RFC 6749. Convert.
-        @expires_in = (at.expires_in - Time.utc.to_unix).clamp(0_i64, Int64::MAX)
+        # `Authly::AccessToken#expires_in` is an absolute unix timestamp
+        # derived from a TTL constant captured at class-load time — before
+        # our `configure!` sets the 2-hour access TTL — so it reports the
+        # authly default (1 hour) and disagrees with the token's own `exp`
+        # claim (which uses the live config). Report the configured TTL so
+        # the relative RFC 6749 `expires_in` matches the JWT and the legacy
+        # 2-hour service.
+        @expires_in = ::Authly.config.access_ttl.total_seconds.to_i64
       end
     end
 

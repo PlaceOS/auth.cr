@@ -30,6 +30,25 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "accepts an application/x-www-form-urlencoded body (browser login form)", tags: "signin-form" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+
+        body = URI::Params.build do |fp|
+          fp.add("email", user.email.to_s)
+          fp.add("password", password)
+        end
+        headers = HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/x-www-form-urlencoded",
+        }
+        result = client.post("/auth/signin", headers: headers, body: body)
+        result.status_code.should eq 202
+        result.headers["Set-Cookie"]?.should_not be_nil
+      ensure
+        user.try &.destroy
+      end
+
       it "redirects to a safe `continue` target when supplied" do
         password = "ok-password-1234"
         user = create_user.call(password)

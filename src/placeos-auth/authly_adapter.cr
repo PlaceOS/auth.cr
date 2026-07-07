@@ -119,6 +119,24 @@ module Authly
       })
     end
   end
+
+  # Patch: `Grant#access_token` derives the token's `sub` from
+  # `grant_strategy.user_id`, but upstream `AuthorizationCode` never
+  # overrides `user_id` (it returns the module default, `nil`), so the
+  # authorization-code grant mints a token with a *random* `sub`. The
+  # legacy Ruby service (Doorkeeper::JWT) sets `sub` to the resource
+  # owner's id — and our `ClaimsProvider` relies on `sub` being a real
+  # user id to attach the `aud` + `u{n,e,p,r}` claims. We recover the
+  # `user_id` that was captured into the authorization code when it was
+  # minted (see the `Code#jwt` patch above).
+  class AuthorizationCode
+    def user_id : String?
+      return nil if @code.empty?
+      Authly.jwt_decode(@code).first["user_id"]?.try(&.as_s.presence)
+    rescue
+      nil
+    end
+  end
 end
 
 # Configure at require time so both the production binary (`src/app.cr`)

@@ -107,5 +107,30 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    describe "scope claim" do
+      # Ruby emits `scope: Array(opts[:scopes])`, and downstream services
+      # decode with `UserJWT` whose `scope` field is `Array(Scope)`. A
+      # space-separated string breaks `UserJWT.decode`.
+      it "emits scope as a JSON array of the granted scopes" do
+        user, app, token = issue_access_token.call("public openid")
+        claims = decode_claims.call(token)
+        claims["scope"].as_a.map(&.as_s).should eq ["public", "openid"]
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "issues a token that PlaceOS::Model::UserJWT can decode" do
+        user, app, token = issue_access_token.call("public")
+        jwt = ::PlaceOS::Model::UserJWT.decode(token)
+        jwt.id.should eq user.id.as(String)
+        jwt.domain.should eq "localhost"
+        jwt.public_scope?.should be_true
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

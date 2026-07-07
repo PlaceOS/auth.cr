@@ -26,6 +26,12 @@ module PlaceOS::Auth::AuthlyAdapter
       sub : String,
       scope : String,
     ) : ::Authly::JWTPayload
+      # Authly builds `scope` as a space-separated string, but the legacy
+      # Ruby service emitted `scope: Array(opts[:scopes])` and downstream
+      # services decode it into `UserJWT#scope : Array(Scope)`. Emit an
+      # array so those consumers keep working.
+      payload["scope"] = scope.split
+
       user = ::PlaceOS::Model::User.find?(sub)
       return payload unless user
 

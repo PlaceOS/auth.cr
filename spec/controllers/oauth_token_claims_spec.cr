@@ -132,5 +132,18 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    describe "claim set" do
+      # The legacy Ruby token carries no `cid` claim; authly adds one by
+      # default. Drop it so the emitted claim set matches Doorkeeper's.
+      it "does not include a cid claim" do
+        user, app, token = issue_access_token.call("public")
+        claims = decode_claims.call(token)
+        claims.as_h.has_key?("cid").should be_false
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

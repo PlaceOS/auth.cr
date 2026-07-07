@@ -32,6 +32,12 @@ module PlaceOS::Auth::AuthlyAdapter
       # array so those consumers keep working.
       payload["scope"] = scope.split
 
+      # Authly adds a `cid` (client id) claim that the legacy Ruby token
+      # never carried. Drop it so the emitted claim set matches
+      # Doorkeeper's byte-for-byte shape. (The persisted token record
+      # still keeps the client id via the separate token-store metadata.)
+      payload.delete("cid")
+
       user = ::PlaceOS::Model::User.find?(sub)
       return payload unless user
 

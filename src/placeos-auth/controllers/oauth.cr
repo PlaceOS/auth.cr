@@ -97,7 +97,10 @@ module PlaceOS::Auth
 
     # --- POST /auth/token -------------------------------------------------
 
+    # `/auth/oauth/token` is the legacy Doorkeeper mount point; kept as an
+    # alias so clients that hardcode the documented path keep working.
     @[AC::Route::POST("/token")]
+    @[AC::Route::POST("/oauth/token")]
     def token(
       grant_type : String,
       client_id : String,
@@ -159,6 +162,7 @@ module PlaceOS::Auth
     # cookie session. If not, we stash the original URL on the session
     # and bounce through `/auth/login`.
     @[AC::Route::GET("/authorize")]
+    @[AC::Route::GET("/oauth/authorize")]
     def authorize(
       response_type : String,
       client_id : String,
@@ -217,6 +221,7 @@ module PlaceOS::Auth
     # the token is unknown / malformed / already revoked, so the
     # client can't infer state by side channel.
     @[AC::Route::POST("/revoke", status_code: HTTP::Status::OK)]
+    @[AC::Route::POST("/oauth/revoke", status_code: HTTP::Status::OK)]
     def revoke(
       token : String,
       token_type_hint : String? = nil,
@@ -233,6 +238,7 @@ module PlaceOS::Auth
     # `User` row; we surface the same claim set the ID token would
     # have (see `AuthlyAdapter::Owner#id_token`).
     @[AC::Route::GET("/userinfo")]
+    @[AC::Route::GET("/oauth/userinfo")]
     def userinfo : Hash(String, String | Int64)
       user_token = authorize!
       claims = AuthlyAdapter::Owner.new.id_token(user_token.id)

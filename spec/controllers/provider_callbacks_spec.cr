@@ -105,6 +105,70 @@ module PlaceOS::Auth
       end
     end
 
+    # ---- redirect_uri parity (drop-in) ------------------------------
+
+    # The legacy Ruby service (generic_oauth#callback_url) sends
+    # `redirect_uri = <host>/auth/oauth2/callback?id=<strat>` to the IdP,
+    # and its RewriteRedirectResponse middleware rewrites that to the
+    # path form `<host>/auth/oauth2/callback/<strat>` for `*.b2clogin.com`
+    # hosts (B2C won't round-trip a query string on redirect_uri). These
+    # URLs are registered in external IdPs and cannot change, so auth.cr
+    # must emit them byte-for-byte.
+    describe "redirect_uri parity", tags: "oauth-redirect-uri" do
+      it "sends redirect_uri carrying ?id=<strat> (matches legacy)" do
+        strat = create_strat.call("https://idp.example.test", "openid")
+        result = client.get(
+          "/auth/oauth2?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 303
+        location = result.headers["Location"]
+        params = URI::Params.parse(location.split('?', 2).last)
+        params["redirect_uri"].should eq "http://localhost/auth/oauth2/callback?id=#{strat.id}"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "rewrites redirect_uri to the path form for *.b2clogin.com hosts" do
+        strat = create_strat.call("https://org.b2clogin.com", "openid")
+        result = client.get(
+          "/auth/oauth2?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 303
+        location = result.headers["Location"]
+        location.should start_with "https://org.b2clogin.com/authorize?"
+        params = URI::Params.parse(location.split('?', 2).last)
+        params["redirect_uri"].should eq "http://localhost/auth/oauth2/callback/#{strat.id}"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "accepts the path-form callback and completes the round-trip" do
+        strat = create_strat.call("https://idp.example.test", "openid email")
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        stub_userinfo.call("https://idp.example.test", {
+          "id"    => "idp-uid-#{Random.rand(99999)}",
+          "email" => "bob-#{Random.rand(99999)}@localhost",
+          "name"  => "Bob Barker",
+        })
+
+        kickoff_data = kickoff.call(strat.id.as(String))
+
+        # IdP returns via the path-form callback (B2C style).
+        result = client.get(
+          "/auth/oauth2/callback/#{URI.encode_www_form(strat.id.as(String))}?code=test-code&state=#{kickoff_data[:state]}",
+          headers: HTTP::Headers{
+            "Host"   => "localhost",
+            "Cookie" => kickoff_data[:cookie],
+          },
+        )
+        result.status_code.should eq 303
+      ensure
+        strat.try &.destroy
+      end
+    end
+
     # ---- GET /auth/:provider/callback -------------------------------
 
     describe "GET /auth/:provider/callback" do

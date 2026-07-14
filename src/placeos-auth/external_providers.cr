@@ -15,12 +15,16 @@ module PlaceOS::Auth::ExternalProviders
   # `:generic_oauth` strategy from the Ruby service.
   OAUTH2_PROVIDER = "oauth2"
 
-  # SAML callbacks come in as `/auth/saml/callback?id=<adfs_strat.id>`.
-  # Replaces the OmniAuth `:generic_adfs` strategy from the Ruby
-  # service. We keep the `saml` name (not `adfs`) because that's the
-  # protocol and the original `:generic_adfs` was just an AD-FS-
-  # specific wrapper around the same SAML 2.0 dance.
-  SAML_PROVIDER = "saml"
+  # SAML callbacks. The legacy Ruby service registered its SAML strategy
+  # under the OmniAuth name `adfs` (`generic_adfs`), so that name is
+  # baked into external IdP registrations, the `/auth/adfs` kickoff and
+  # callback paths, the login-event payload, and — critically — the
+  # `UserAuthLookup` id (`auth-<authority>-adfs-<uid>`). We must reuse it
+  # verbatim, or existing SAML-linked accounts won't resolve after the
+  # swap. `saml` is kept as an internal alias (auth.cr-era callers), but
+  # the recorded provider name is always `adfs`.
+  SAML_PROVIDER       = "adfs"
+  SAML_PROVIDER_ALIAS = "saml"
 
   def self.register!
     ::MultiAuth.config(OAUTH2_PROVIDER) do |redirect_uri, provider_id|
@@ -28,6 +32,10 @@ module PlaceOS::Auth::ExternalProviders
     end
 
     ::MultiAuth.config(SAML_PROVIDER) do |redirect_uri, provider_id|
+      build_saml(redirect_uri, provider_id)
+    end
+
+    ::MultiAuth.config(SAML_PROVIDER_ALIAS) do |redirect_uri, provider_id|
       build_saml(redirect_uri, provider_id)
     end
   end
@@ -73,13 +81,22 @@ module PlaceOS::Auth::ExternalProviders
       raise ::MultiAuth::Exception.new("unknown saml strategy: #{provider_id.inspect}")
     end
 
+    # Advertise the DB-configured ACS URL — exactly what the IdP has
+    # registered and what the legacy service sent
+    # (`options.assertion_consumer_service_url = strat.assertion_consumer_service_url`).
+    # `multi_auth_saml` uses `redirect_uri` as the ACS URL, so pass the
+    # DB value straight through (falling back to the computed callback
+    # only if the column is somehow blank).
+    acs_url = strat.assertion_consumer_service_url.presence || redirect_uri
+
     ::MultiAuth::Provider::SAML.new(
       provider_name: SAML_PROVIDER,
-      redirect_uri: redirect_uri,
+      redirect_uri: acs_url,
       idp_sso_url: strat.idp_sso_target_url,
       idp_cert: strat.idp_cert,
       idp_cert_fingerprint: strat.idp_cert_fingerprint,
       sp_entity_id: strat.issuer,
+      name_identifier_format: strat.name_identifier_format,
       uid_attribute: strat.uid_attribute,
       attribute_statements: saml_attribute_mapping(strat),
       want_assertions_signed: strat.idp_cert.presence || strat.idp_cert_fingerprint.presence ? true : false,

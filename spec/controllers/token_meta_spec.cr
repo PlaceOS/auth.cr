@@ -128,14 +128,74 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "rejects a caller that does not identify itself (401)" do
+      it "rejects a caller that does not identify itself (400 invalid_request)" do
         _, app = make_app.call("public")
         active_token = issue_token.call(app)
         result = form_post.call("/auth/oauth/introspect", {"token" => active_token}, nil)
-        result.status_code.should eq 401
-        JSON.parse(result.body)["error"].as_s.should eq "invalid_client"
+        result.status_code.should eq 400
+        JSON.parse(result.body)["error"].as_s.should eq "invalid_request"
       ensure
         app.try &.destroy
+      end
+
+      it "lets a bearer caller introspect its own application's token" do
+        user, app = make_app.call("public")
+        token = issue_token.call(app)
+        other = issue_token.call(app) # a second, different token of the same app
+
+        result = form_post.call("/auth/oauth/introspect",
+          {"token" => token},
+          HTTP::Headers{"Authorization" => "Bearer #{other}"})
+        result.status_code.should eq 200
+        JSON.parse(result.body)["active"].as_bool.should be_true
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "forbids a bearer caller from introspecting another application's token (401)" do
+        user_a, app_a = make_app.call("public")
+        user_b, app_b = make_app.call("public")
+        token_a = issue_token.call(app_a)
+        bearer_b = issue_token.call(app_b)
+
+        result = form_post.call("/auth/oauth/introspect",
+          {"token" => token_a},
+          HTTP::Headers{"Authorization" => "Bearer #{bearer_b}"})
+        result.status_code.should eq 401
+        JSON.parse(result.body)["error"].as_s.should eq "invalid_token"
+      ensure
+        app_a.try &.destroy
+        app_b.try &.destroy
+        user_a.try &.destroy
+        user_b.try &.destroy
+      end
+
+      it "forbids a bearer caller from introspecting the token it authenticated with (401)" do
+        user, app = make_app.call("public")
+        token = issue_token.call(app)
+
+        result = form_post.call("/auth/oauth/introspect",
+          {"token" => token},
+          HTTP::Headers{"Authorization" => "Bearer #{token}"})
+        result.status_code.should eq 401
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "sets WWW-Authenticate and Cache-Control on a 401" do
+        user, app = make_app.call("public")
+        token = issue_token.call(app)
+        result = form_post.call("/auth/oauth/introspect",
+          {"token" => token},
+          HTTP::Headers{"Authorization" => "Bearer bogus-token"})
+        result.status_code.should eq 401
+        result.headers["WWW-Authenticate"].should contain "Bearer"
+        result.headers["Cache-Control"].should contain "no-store"
+      ensure
+        app.try &.destroy
+        user.try &.destroy
       end
     end
 

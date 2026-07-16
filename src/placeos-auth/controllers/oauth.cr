@@ -80,11 +80,15 @@ module PlaceOS::Auth
 
     @[AC::Route::Exception(OAuthBadRequest, status_code: HTTP::Status::BAD_REQUEST)]
     def oauth_bad_request(error) : ErrorResponse
+      response.headers["Cache-Control"] = "no-store"
       ErrorResponse.new(error.error_code, error.message)
     end
 
     @[AC::Route::Exception(OAuthUnauthorized, status_code: HTTP::Status::UNAUTHORIZED)]
     def oauth_unauthorized(error) : ErrorResponse
+      # RFC 6750 §3 auth challenge, as Doorkeeper emitted on its 401s.
+      response.headers["WWW-Authenticate"] = %(Bearer realm="Doorkeeper", error="#{error.error_code}")
+      response.headers["Cache-Control"] = "no-store"
       ErrorResponse.new(error.error_code, error.message)
     end
 
@@ -233,6 +237,7 @@ module PlaceOS::Auth
     @[AC::Route::DELETE("/oauth/authorize")]
     def deny_authorize(
       redirect_uri : String,
+      client_id : String,
       response_type : String? = nil,
       state : String? = nil,
     ) : Nil
@@ -241,6 +246,13 @@ module PlaceOS::Auth
         set_continue(request.resource)
         redirect_to "/auth/login", :see_other
         return
+      end
+
+      # Never redirect to an unregistered URI — validate it against the
+      # client exactly as the grant path does, so deny can't be abused as
+      # an open redirect.
+      unless ::Authly.clients.valid_redirect?(client_id, redirect_uri)
+        raise OAuthBadRequest.new("invalid_request", "redirect_uri is not registered for this client")
       end
 
       target = String.build do |io|
@@ -332,32 +344,43 @@ module PlaceOS::Auth
       end
     end
 
+    # Identifies the authenticated introspection caller. A bearer caller
+    # additionally carries its own application + token so we can reproduce
+    # Doorkeeper's same-application restriction and self-introspection block.
+    struct IntrospectionCaller
+      getter client_id : String?
+      getter bearer_jti : String?
+
+      def initialize(@client_id, @bearer_jti = nil)
+      end
+    end
+
     @[AC::Route::POST("/introspect")]
     @[AC::Route::POST("/oauth/introspect")]
     def introspect(
       token : String,
       token_type_hint : String? = nil,
     ) : IntrospectionResponse
-      # Authenticate the caller; an empty client_id means a bearer-authorized
-      # caller (allowed to see any token; Doorkeeper's default policy only
-      # restricts client-credential callers to their own tokens).
-      caller_client_id = authenticate_introspection_caller
+      introspector = authenticate_introspection_caller
 
       record = lookup_token_record(token)
       return IntrospectionResponse.inactive unless record
 
-      token_client = record.client_id
-
-      # Cross-client visibility: a client-credential caller may only
-      # introspect its own application's tokens.
-      if caller_client_id && !caller_client_id.empty? && token_client != caller_client_id
+      if bearer_jti = introspector.bearer_jti
+        # A bearer caller may only introspect its own application's tokens,
+        # and never the token it authenticated with (Doorkeeper → 401).
+        if bearer_jti == record.jti || record.client_id != introspector.client_id
+          raise OAuthUnauthorized.new("invalid_token", "The access token is invalid")
+        end
+      elsif (caller_client = introspector.client_id) && record.client_id != caller_client
+        # A client-credential caller sees another application's token as inactive.
         return IntrospectionResponse.inactive
       end
 
       IntrospectionResponse.new(
         active: true,
         scope: record.scope.presence,
-        client_id: token_client.presence,
+        client_id: record.client_id.presence,
         # `record.token_type` is the token category ("access_token"); the
         # OAuth `token_type` field is always "Bearer" here.
         token_type: "Bearer",
@@ -391,9 +414,12 @@ module PlaceOS::Auth
       record
     end
 
-    # Returns the authenticated caller's client_id (empty string for a
-    # bearer-token caller with no client), or raises 401 invalid_client.
-    private def authenticate_introspection_caller : String?
+    # Authenticates the introspection caller (RFC 7662 §2.1): client
+    # credentials via HTTP Basic or params, or a bearer access token.
+    # Raises 401 invalid_client / invalid_token on bad credentials, and
+    # 400 invalid_request when the request carries no credentials at all
+    # (matching Doorkeeper).
+    private def authenticate_introspection_caller : IntrospectionCaller
       if creds = basic_auth_credentials
         client_id, client_secret = creds
       else
@@ -405,15 +431,20 @@ module PlaceOS::Auth
         unless ::Authly.clients.authorized?(client_id, client_secret)
           raise OAuthUnauthorized.new("invalid_client", "client authentication failed")
         end
-        return client_id
+        return IntrospectionCaller.new(client_id)
       end
 
-      # Fall back to bearer-token authorization of the caller.
+      # Bearer-token caller: identify its own application and token so the
+      # same-application restriction applies to it too.
       if bearer = acquire_token
-        return "" if ::Authly.valid?(bearer)
+        if bearer_record = lookup_token_record(bearer)
+          return IntrospectionCaller.new(bearer_record.client_id, bearer_record.jti)
+        end
+        raise OAuthUnauthorized.new("invalid_token", "The access token is invalid")
       end
 
-      raise OAuthUnauthorized.new("invalid_client", "client authentication failed")
+      raise OAuthBadRequest.new("invalid_request",
+        "Request needs to be authorized. Required parameter for authorizing the request is missing or invalid.")
     end
 
     private def basic_auth_credentials : {String, String}?
@@ -427,15 +458,6 @@ module PlaceOS::Auth
       client_id, _, client_secret = decoded.partition(':')
       return if client_id.empty?
       {client_id, client_secret}
-    end
-
-    private def introspection_scope_string(value : JSON::Any?) : String
-      return "" unless value
-      if arr = value.as_a?
-        arr.map(&.as_s).join(' ')
-      else
-        value.as_s? || value.to_s
-      end
     end
 
     # --- GET /auth/token/info --------------------------------------------
@@ -474,8 +496,8 @@ module PlaceOS::Auth
       record = lookup_token_record(bearer)
       raise OAuthUnauthorized.new("invalid_token", "The access token is invalid") unless record
 
-      exp = record.expires_at || 0_i64
-      remaining = exp - Time.utc.to_unix
+      # Doorkeeper floors expires_in at 0 (a non-expiring token reports 0).
+      remaining = record.expires_at.try { |exp| Math.max(0_i64, exp - Time.utc.to_unix) } || 0_i64
 
       TokenInfoResponse.new(
         resource_owner_id: record.sub || "",

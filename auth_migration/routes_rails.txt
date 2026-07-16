@@ -1,0 +1,39 @@
+                       Prefix Verb   URI Pattern                                            Controller#Action
+   native_oauth_authorization GET    /auth/oauth/authorize/native(.:format)                 doorkeeper/authorizations#show
+          oauth_authorization GET    /auth/oauth/authorize(.:format)                        doorkeeper/authorizations#new
+                              DELETE /auth/oauth/authorize(.:format)                        doorkeeper/authorizations#destroy
+                              POST   /auth/oauth/authorize(.:format)                        doorkeeper/authorizations#create
+                  oauth_token POST   /auth/oauth/token(.:format)                            doorkeeper/tokens#create
+                 oauth_revoke POST   /auth/oauth/revoke(.:format)                           doorkeeper/tokens#revoke
+             oauth_introspect POST   /auth/oauth/introspect(.:format)                       doorkeeper/tokens#introspect
+           oauth_applications GET    /auth/oauth/applications(.:format)                     doorkeeper/applications#index
+                              POST   /auth/oauth/applications(.:format)                     doorkeeper/applications#create
+        new_oauth_application GET    /auth/oauth/applications/new(.:format)                 doorkeeper/applications#new
+       edit_oauth_application GET    /auth/oauth/applications/:id/edit(.:format)            doorkeeper/applications#edit
+            oauth_application GET    /auth/oauth/applications/:id(.:format)                 doorkeeper/applications#show
+                              PATCH  /auth/oauth/applications/:id(.:format)                 doorkeeper/applications#update
+                              PUT    /auth/oauth/applications/:id(.:format)                 doorkeeper/applications#update
+                              DELETE /auth/oauth/applications/:id(.:format)                 doorkeeper/applications#destroy
+oauth_authorized_applications GET    /auth/oauth/authorized_applications(.:format)          doorkeeper/authorized_applications#index
+ oauth_authorized_application DELETE /auth/oauth/authorized_applications/:id(.:format)      doorkeeper/authorized_applications#destroy
+             oauth_token_info GET    /auth/oauth/token/info(.:format)                       doorkeeper/token_info#show
+               oauth_userinfo GET    /auth/oauth/userinfo(.:format)                         doorkeeper/openid_connect/userinfo#show
+                              POST   /auth/oauth/userinfo(.:format)                         doorkeeper/openid_connect/userinfo#show
+         oauth_discovery_keys GET    /auth/oauth/discovery/keys(.:format)                   doorkeeper/openid_connect/discovery#keys
+     oauth_discovery_provider GET    /auth/.well-known/openid-configuration(.:format)       doorkeeper/openid_connect/discovery#provider
+                              GET    /auth/.well-known/oauth-authorization-server(.:format) doorkeeper/openid_connect/discovery#provider
+    oauth_discovery_webfinger GET    /auth/.well-known/webfinger(.:format)                  doorkeeper/openid_connect/discovery#webfinger
+                        login GET    /auth/login(.:format)                                  auth/sessions#new
+                       logout GET    /auth/logout(.:format)                                 auth/sessions#destroy
+                              GET    /auth/:provider/callback(.:format)                     auth/sessions#create
+                              POST   /auth/:provider/callback(.:format)                     auth/sessions#create
+                              GET    /auth/:provider/callback/:strategy(.:format)           auth/sessions#create
+                              POST   /auth/:provider/callback/:strategy(.:format)           auth/sessions#create
+                       signin POST   /auth/signin(.:format)                                 auth/sessions#signin
+                       signup POST   /auth/signup(.:format)                                 auth/signups#create
+                      failure GET    /auth/failure(.:format)                                auth/signups#show
+                    authority GET    /auth/authority(.:format)                              auth/authorities#current
+                              GET    /.well-known/openid-configuration(.:format)            doorkeeper/openid_connect/discovery#provider
+                              GET    /.well-known/oauth-authorization-server(.:format)      doorkeeper/openid_connect/discovery#provider
+                              GET    /.well-known/webfinger(.:format)                       doorkeeper/openid_connect/discovery#webfinger
+                                     /*any(.:format)                                        errors#not_found

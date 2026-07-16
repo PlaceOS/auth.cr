@@ -49,6 +49,7 @@ PgORM::Database.configure { |_| }
 def clear_tables
   [
     PlaceOS::Model::ApiKey,
+    PlaceOS::Model::OAuthToken,
     PlaceOS::Model::UserAuthLookup,
     PlaceOS::Model::DoorkeeperApplication,
     PlaceOS::Model::OAuthAuthentication,

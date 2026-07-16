@@ -1,0 +1,21 @@
+Controller#Action                                     Verb URI Pattern
+PlaceOS::Auth::Authorities#current                    get  /auth/authority
+PlaceOS::Auth::Failures#show                          get  /auth/failure
+PlaceOS::Auth::OAuth#token                            post /auth/token
+PlaceOS::Auth::OAuth#token                            post /auth/oauth/token
+PlaceOS::Auth::OAuth#authorize                        get  /auth/authorize
+PlaceOS::Auth::OAuth#authorize                        get  /auth/oauth/authorize
+PlaceOS::Auth::OAuth#revoke                           post /auth/revoke
+PlaceOS::Auth::OAuth#revoke                           post /auth/oauth/revoke
+PlaceOS::Auth::OAuth#userinfo                         get  /auth/userinfo
+PlaceOS::Auth::OAuth#userinfo                         get  /auth/oauth/userinfo
+PlaceOS::Auth::Discovery#openid_configuration         get  /.well-known/openid-configuration
+PlaceOS::Auth::ProviderCallbacks#initiate             get  /auth/:provider
+PlaceOS::Auth::ProviderCallbacks#callback             get  /auth/:provider/callback
+PlaceOS::Auth::ProviderCallbacks#callback             post /auth/:provider/callback
+PlaceOS::Auth::ProviderCallbacks#callback_alias       get  /auth/:provider/callback/:strategy
+PlaceOS::Auth::ProviderCallbacks#callback_alias       post /auth/:provider/callback/:strategy
+PlaceOS::Auth::Root#healthz                           get  /auth/healthz
+PlaceOS::Auth::Sessions#signin                        post /auth/signin
+PlaceOS::Auth::Sessions#destroy                       get  /auth/logout
+PlaceOS::Auth::Sessions#new                           get  /auth/login

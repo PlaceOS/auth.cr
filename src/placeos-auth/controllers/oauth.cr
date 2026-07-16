@@ -158,13 +158,20 @@ module PlaceOS::Auth
       translate_authly_error(ex)
     end
 
-    # --- GET /auth/authorize ----------------------------------------------
+    # --- GET|POST /auth/authorize -----------------------------------------
 
     # Authorization endpoint. Requires the user to be signed in via the
     # cookie session. If not, we stash the original URL on the session
     # and bounce through `/auth/login`.
+    #
+    # The legacy service rendered no consent screen (`skip_authorization`
+    # was always true), so Doorkeeper's `POST authorize` (the consent
+    # submit) issued the grant exactly as the `GET` did. Both verbs map
+    # here for parity.
     @[AC::Route::GET("/authorize")]
     @[AC::Route::GET("/oauth/authorize")]
+    @[AC::Route::POST("/authorize")]
+    @[AC::Route::POST("/oauth/authorize")]
     def authorize(
       response_type : String,
       client_id : String,
@@ -215,6 +222,66 @@ module PlaceOS::Auth
       end
 
       redirect_to target, :found
+    end
+
+    # --- DELETE /auth/authorize (deny) ------------------------------------
+
+    # The deny half of the authorization endpoint. Doorkeeper redirected
+    # back to the client with `error=access_denied`. Requires a session
+    # like the grant path.
+    @[AC::Route::DELETE("/authorize")]
+    @[AC::Route::DELETE("/oauth/authorize")]
+    def deny_authorize(
+      redirect_uri : String,
+      response_type : String? = nil,
+      state : String? = nil,
+    ) : Nil
+      user = session_user
+      if user.nil?
+        set_continue(request.resource)
+        redirect_to "/auth/login", :see_other
+        return
+      end
+
+      target = String.build do |io|
+        io << redirect_uri
+        io << (redirect_uri.includes?('?') ? '&' : '?')
+        io << "error=access_denied"
+        io << "&error_description=" << URI.encode_www_form(
+          "The resource owner or authorization server denied the request.")
+        if (s = state.presence)
+          io << "&state=" << URI.encode_www_form(s)
+        end
+      end
+
+      redirect_to target, :found
+    end
+
+    # --- GET /auth/authorize/native ---------------------------------------
+
+    # Out-of-band code display. When a client's redirect_uri is the OOB
+    # URN, the grant redirect lands here and the page shows the code for
+    # the user to copy. No OOB clients exist in current deployments, but
+    # the route is served for parity. Requires a session.
+    @[AC::Route::GET("/authorize/native")]
+    @[AC::Route::GET("/oauth/authorize/native")]
+    def authorize_native(code : String? = nil) : Nil
+      user = session_user
+      if user.nil?
+        set_continue(request.resource)
+        redirect_to "/auth/login", :see_other
+        return
+      end
+
+      shown = HTML.escape(code || "")
+      render html: <<-HTML
+      <!doctype html>
+      <html lang="en">
+      <head><meta charset="utf-8"><title>Authorization code</title></head>
+      <body><h1>Authorization code:</h1>
+      <code id="authorization_code">#{shown}</code>
+      </body></html>
+      HTML
     end
 
     # --- POST /auth/revoke -----------------------------------------------

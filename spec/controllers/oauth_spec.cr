@@ -320,7 +320,7 @@ module PlaceOS::Auth
         body = JSON.parse(result.body)
         body["token_endpoint"].as_s.should end_with "/auth/token"
         body["authorization_endpoint"].as_s.should end_with "/auth/authorize"
-        body["userinfo_endpoint"].as_s.should end_with "/auth/userinfo"
+        body["userinfo_endpoint"].as_s.should end_with "/auth/oauth/userinfo"
         body["revocation_endpoint"].as_s.should end_with "/auth/revoke"
         body["grant_types_supported"].as_a.map(&.as_s).should_not contain "password"
         body["grant_types_supported"].as_a.map(&.as_s).should_not contain "implicit"

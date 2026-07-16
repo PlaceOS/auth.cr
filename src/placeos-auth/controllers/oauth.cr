@@ -5,12 +5,9 @@ module PlaceOS::Auth
   # shard's library API (we don't mount `Authly::Handler` because we
   # want the legacy `/auth/...` prefix, not `/oauth/...`).
   #
-  # Endpoints in this controller:
-  #   * POST `/auth/token`      — token endpoint (3 grants)
-  #   * GET  `/auth/authorize`  — authorization endpoint (code flow)
-  #
-  # Revoke / userinfo / `.well-known/openid-configuration` land in
-  # Phase 3d.
+  # Every endpoint is served at both the short `/auth/*` path and the
+  # legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+  # annotations), so the service is a drop-in for the Rails auth.
   class OAuth < Application
     base "/auth"
 
@@ -236,13 +233,18 @@ module PlaceOS::Auth
       Log.debug { {action: "oauth.revoke", message: "ignored failure (RFC 7009)"} }
     end
 
-    # --- GET /auth/userinfo ----------------------------------------------
+    # --- GET|POST /auth/userinfo -------------------------------------------
 
     # OIDC `userinfo`. The Bearer token's `sub` claim points at the
     # `User` row; we surface the same claim set the ID token would
     # have (see `AuthlyAdapter::Owner#id_token`).
+    #
+    # OIDC Core §5.3 requires both GET and POST; Doorkeeper mounted both
+    # verbs, so both are served for wire parity (PPT-2536).
     @[AC::Route::GET("/userinfo")]
     @[AC::Route::GET("/oauth/userinfo")]
+    @[AC::Route::POST("/userinfo")]
+    @[AC::Route::POST("/oauth/userinfo")]
     def userinfo : Hash(String, String | Int64)
       user_token = authorize!
       claims = AuthlyAdapter::Owner.new.id_token(user_token.id)
@@ -275,13 +277,21 @@ module PlaceOS::Auth
       getter code_challenge_methods_supported : Array(String)
       getter claims_supported : Array(String)
 
+      getter jwks_uri : String
+      getter introspection_endpoint : String
+
       def initialize(issuer : String, logout : String? = nil)
         base = issuer.rstrip('/')
         @issuer = base
-        @authorization_endpoint = "#{base}/auth/authorize"
-        @token_endpoint = "#{base}/auth/token"
-        @userinfo_endpoint = "#{base}/auth/userinfo"
-        @revocation_endpoint = "#{base}/auth/revoke"
+        # Advertise the legacy Doorkeeper mount points — external relying
+        # parties configured against the Rails service discovered these
+        # paths (all are served, the short `/auth/*` forms as aliases).
+        @authorization_endpoint = "#{base}/auth/oauth/authorize"
+        @token_endpoint = "#{base}/auth/oauth/token"
+        @userinfo_endpoint = "#{base}/auth/oauth/userinfo"
+        @revocation_endpoint = "#{base}/auth/oauth/revoke"
+        @jwks_uri = "#{base}/auth/oauth/discovery/keys"
+        @introspection_endpoint = "#{base}/auth/oauth/introspect"
         @end_session_endpoint = logout
         @scopes_supported = ["openid", "profile", "email", "offline_access", "public"]
         # `implicit` and `password` are intentionally absent.
@@ -295,13 +305,64 @@ module PlaceOS::Auth
       end
     end
 
+    # Rails mounted the discovery document at four paths: the two spec
+    # locations at the domain root, plus `/auth/.well-known/*` variants
+    # from Doorkeeper's `scope :auth` mount (RFC 8414 also aliases the
+    # OIDC document as `oauth-authorization-server`). All four serve the
+    # identical document for wire parity (PPT-2536).
+    #
+    # NOTE: at the Ruby service's locked gem versions (doorkeeper-
+    # openid_connect 1.10.1) these endpoints 500 due to an issuer-block
+    # arity regression; this implements the *intended* behaviour.
     @[AC::Route::GET("/.well-known/openid-configuration")]
+    @[AC::Route::GET("/.well-known/oauth-authorization-server")]
+    @[AC::Route::GET("/auth/.well-known/openid-configuration")]
+    @[AC::Route::GET("/auth/.well-known/oauth-authorization-server")]
     def openid_configuration : Response
       authority = current_authority
+      Response.new(issuer: request_issuer, logout: authority.try(&.logout_url))
+    end
+
+    # OIDC discovery §2: WebFinger. The legacy service echoed the
+    # `resource` parameter back untouched with a single issuer link;
+    # requests without `resource` fail with 400.
+    struct WebFingerLink
+      include JSON::Serializable
+
+      getter rel : String = "http://openid.net/specs/connect/1.0/issuer"
+      getter href : String
+
+      def initialize(@href)
+      end
+    end
+
+    struct WebFingerResponse
+      include JSON::Serializable
+
+      getter subject : String
+      getter links : Array(WebFingerLink)
+
+      def initialize(@subject, issuer : String)
+        @links = [WebFingerLink.new(issuer)]
+      end
+    end
+
+    # `resource` is taken as optional then validated by hand: the router
+    # maps missing required params to 422, but Rails' ParameterMissing
+    # responded 400 — parity wins (PPT-2536).
+    @[AC::Route::GET("/.well-known/webfinger")]
+    @[AC::Route::GET("/auth/.well-known/webfinger")]
+    def webfinger(resource : String? = nil) : WebFingerResponse
+      resource = resource.presence
+      raise Error::BadRequest.new("param is missing or the value is empty: resource") unless resource
+      WebFingerResponse.new(resource, request_issuer)
+    end
+
+    # Issuer per the legacy initializer's intent: scheme + request host.
+    private def request_issuer : String
       scheme = request.headers["X-Forwarded-Proto"]? || (PlaceOS::Auth.production? ? "https" : "http")
       host = request.hostname || "localhost"
-      issuer = "#{scheme}://#{host}"
-      Response.new(issuer: issuer, logout: authority.try(&.logout_url))
+      "#{scheme}://#{host}"
     end
   end
 end

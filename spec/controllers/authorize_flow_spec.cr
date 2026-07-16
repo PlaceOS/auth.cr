@@ -70,7 +70,8 @@ module PlaceOS::Auth
         user, password, app = make_app.call
         cookie = Spec.signin!(client, user, password)
         headers = HTTP::Headers{"Host" => "localhost", "Cookie" => cookie}
-        query = "redirect_uri=#{URI.encode_www_form(app.redirect_uri.as(String))}&response_type=code&state=abc"
+        query = "redirect_uri=#{URI.encode_www_form(app.redirect_uri.as(String))}" \
+                "&client_id=#{URI.encode_www_form(app.uid.as(String))}&response_type=code&state=abc"
 
         result = client.delete("/auth/oauth/authorize?#{query}", headers: headers)
         result.status_code.should eq 302
@@ -78,6 +79,21 @@ module PlaceOS::Auth
         location.should start_with app.redirect_uri.as(String)
         location.should contain "error=access_denied"
         location.should contain "state=abc"
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "refuses to redirect to a URI not registered for the client (no open redirect)" do
+        user, password, app = make_app.call
+        cookie = Spec.signin!(client, user, password)
+        headers = HTTP::Headers{"Host" => "localhost", "Cookie" => cookie}
+        query = "redirect_uri=#{URI.encode_www_form("https://evil.example/")}" \
+                "&client_id=#{URI.encode_www_form(app.uid.as(String))}&response_type=code"
+
+        result = client.delete("/auth/oauth/authorize?#{query}", headers: headers)
+        result.status_code.should eq 400
+        result.headers["Location"]?.should be_nil
       ensure
         app.try &.destroy
         user.try &.destroy

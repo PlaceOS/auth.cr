@@ -91,6 +91,9 @@ module PlaceOS::Auth
     @[AC::Route::POST("")]
     def create : Record
       app = ::PlaceOS::Model::DoorkeeperApplication.new
+      # Doorkeeper apps default to confidential; the model default is
+      # false, so set it here and let an explicit param override.
+      app.confidential = true
       assign_attributes(app)
       app.owner_id = (session_user.try(&.id)).as(String)
       persist!(app)
@@ -150,10 +153,37 @@ module PlaceOS::Auth
     end
 
     # Reads a create/update field. Doorkeeper nested the form params under
-    # `doorkeeper_application[...]`; flat bodies were auto-wrapped, so we
-    # accept either shape.
+    # `doorkeeper_application[...]` and (via Rails wrap_parameters) also
+    # accepted flat and JSON bodies, so we accept form params (nested or
+    # flat) as well as a JSON body in either shape.
     private def app_param(key : String) : String?
-      params["doorkeeper_application[#{key}]"]? || params[key]?
+      if value = params["doorkeeper_application[#{key}]"]? || params[key]?
+        return value
+      end
+      json_param(key)
+    end
+
+    @json_body : JSON::Any? = nil
+    @json_body_parsed = false
+
+    private def json_param(key : String) : String?
+      body = json_body
+      return unless body
+      nested = body["doorkeeper_application"]?
+      value = (nested && nested[key]?) || body[key]?
+      return unless value
+      value.as_s? || value.to_s
+    end
+
+    private def json_body : JSON::Any?
+      return @json_body if @json_body_parsed
+      @json_body_parsed = true
+      content_type = request.headers["Content-Type"]?
+      return unless content_type && content_type.includes?("application/json")
+      if raw = request.body.try(&.gets_to_end).presence
+        @json_body = JSON.parse(raw) rescue nil
+      end
+      @json_body
     end
 
     private def form_page(title : String, action : String, method : String) : String

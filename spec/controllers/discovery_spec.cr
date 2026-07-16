@@ -22,7 +22,7 @@ module PlaceOS::Auth
 
     it "serves the provider document at all four legacy paths, identically" do
       docs = provider_paths.map { |path| get_json.call(path) }
-      docs.each { |doc| doc.should eq docs.first }
+      docs.each(&.should(eq docs.first))
     end
 
     it "advertises the legacy Doorkeeper endpoint mounts" do

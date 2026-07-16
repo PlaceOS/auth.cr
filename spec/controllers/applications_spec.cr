@@ -82,6 +82,21 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "accepts a JSON body (nested under doorkeeper_application)" do
+        user, headers = admin_session.call
+        headers["Content-Type"] = "application/json"
+        redirect = "https://json.example/cb/#{UUID.random}"
+        body = {doorkeeper_application: {name: "json-app", redirect_uri: redirect, scopes: "public"}}.to_json
+
+        result = client.post("/auth/oauth/applications", headers: headers, body: body)
+        result.status_code.should eq 200
+        record = JSON.parse(result.body)
+        record["name"].as_s.should eq "json-app"
+        record["redirect_uri"].as_s.should eq redirect
+      ensure
+        user.try &.destroy
+      end
+
       it "returns 422 with an errors array on invalid input" do
         _, headers = admin_session.call
         headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -169,6 +184,36 @@ module PlaceOS::Auth
         result.status_code.should eq 200
         ids = JSON.parse(result.body).as_a.map(&.["id"].as_i64)
         ids.should contain app.id
+      ensure
+        user.try &.destroy
+      end
+
+      it "excludes apps whose only token is revoked or expired" do
+        user, headers = plain_session.call
+        revoked_app = make_app.call(user)
+        expired_app = make_app.call(user)
+        ::PlaceOS::Model::OAuthToken.new.tap do |t|
+          t.jti = UUID.random.to_s
+          t.client_id = revoked_app.uid
+          t.sub = user.id
+          t.issued_at = Time.utc.to_unix
+          t.expires_at = Time.utc.to_unix + 3600
+          t.revoked_at = Time.utc.to_unix
+          t.save!
+        end
+        ::PlaceOS::Model::OAuthToken.new.tap do |t|
+          t.jti = UUID.random.to_s
+          t.client_id = expired_app.uid
+          t.sub = user.id
+          t.issued_at = Time.utc.to_unix - 7200
+          t.expires_at = Time.utc.to_unix - 3600
+          t.save!
+        end
+
+        result = client.get("/auth/oauth/authorized_applications", headers: headers)
+        ids = JSON.parse(result.body).as_a.map(&.["id"].as_i64)
+        ids.should_not contain revoked_app.id
+        ids.should_not contain expired_app.id
       ensure
         user.try &.destroy
       end

@@ -234,6 +234,191 @@ module PlaceOS::Auth
       Log.debug { {action: "oauth.revoke", message: "ignored failure (RFC 7009)"} }
     end
 
+    # --- POST /auth/introspect (RFC 7662) --------------------------------
+
+    # OAuth2 token introspection. The Ruby service (Doorkeeper) required
+    # the *caller* to authenticate — either with client credentials
+    # (HTTP Basic or `client_id`/`client_secret` params) or with a
+    # different bearer access token — and only revealed a token's state
+    # to the client that owns it. We reproduce that: an unauthenticated
+    # introspection endpoint would leak token validity to anyone.
+    struct IntrospectionResponse
+      include JSON::Serializable
+
+      getter active : Bool
+      @[JSON::Field(emit_null: false)]
+      getter scope : String?
+      @[JSON::Field(emit_null: false)]
+      getter client_id : String?
+      @[JSON::Field(emit_null: false)]
+      getter token_type : String?
+      @[JSON::Field(emit_null: false)]
+      getter iat : Int64?
+      @[JSON::Field(emit_null: false)]
+      getter exp : Int64?
+
+      def self.inactive : self
+        new(false)
+      end
+
+      def initialize(@active, @scope = nil, @client_id = nil, @token_type = nil, @iat = nil, @exp = nil)
+      end
+    end
+
+    @[AC::Route::POST("/introspect")]
+    @[AC::Route::POST("/oauth/introspect")]
+    def introspect(
+      token : String,
+      token_type_hint : String? = nil,
+    ) : IntrospectionResponse
+      # Authenticate the caller; an empty client_id means a bearer-authorized
+      # caller (allowed to see any token; Doorkeeper's default policy only
+      # restricts client-credential callers to their own tokens).
+      caller_client_id = authenticate_introspection_caller
+
+      record = lookup_token_record(token)
+      return IntrospectionResponse.inactive unless record
+
+      token_client = record.client_id
+
+      # Cross-client visibility: a client-credential caller may only
+      # introspect its own application's tokens.
+      if caller_client_id && !caller_client_id.empty? && token_client != caller_client_id
+        return IntrospectionResponse.inactive
+      end
+
+      IntrospectionResponse.new(
+        active: true,
+        scope: record.scope.presence,
+        client_id: token_client.presence,
+        # `record.token_type` is the token category ("access_token"); the
+        # OAuth `token_type` field is always "Bearer" here.
+        token_type: "Bearer",
+        iat: record.issued_at,
+        exp: record.expires_at,
+      )
+    end
+
+    # Looks up the persisted record for a presented access token,
+    # returning nil if the token is malformed, unknown, revoked, or
+    # expired. The Doorkeeper fields (client_id, resource owner, scope,
+    # timestamps) come from this record, not the JWT claims — the JWT's
+    # `aud` is the authority domain and it carries no client id.
+    private def lookup_token_record(token : String) : ::PlaceOS::Model::OAuthToken?
+      payload = begin
+        decoded, _header = ::Authly.jwt_decode(token)
+        decoded
+      rescue
+        return nil
+      end
+
+      jti = payload["jti"]?.try(&.as_s?)
+      return nil unless jti
+
+      record = ::PlaceOS::Model::OAuthToken.where(jti: jti).first?
+      return nil unless record
+      return nil if record.revoked?
+      if (exp = record.expires_at) && Time.utc.to_unix >= exp
+        return nil
+      end
+      record
+    end
+
+    # Returns the authenticated caller's client_id (empty string for a
+    # bearer-token caller with no client), or raises 401 invalid_client.
+    private def authenticate_introspection_caller : String?
+      if creds = basic_auth_credentials
+        client_id, client_secret = creds
+      else
+        client_id = params["client_id"]?
+        client_secret = params["client_secret"]?
+      end
+
+      if client_id && client_secret
+        unless ::Authly.clients.authorized?(client_id, client_secret)
+          raise OAuthUnauthorized.new("invalid_client", "client authentication failed")
+        end
+        return client_id
+      end
+
+      # Fall back to bearer-token authorization of the caller.
+      if bearer = acquire_token
+        return "" if ::Authly.valid?(bearer)
+      end
+
+      raise OAuthUnauthorized.new("invalid_client", "client authentication failed")
+    end
+
+    private def basic_auth_credentials : {String, String}?
+      header = request.headers["Authorization"]?
+      return unless header && header.starts_with?("Basic ")
+      decoded = begin
+        Base64.decode_string(header.lchop("Basic ").strip)
+      rescue
+        return
+      end
+      client_id, _, client_secret = decoded.partition(':')
+      return if client_id.empty?
+      {client_id, client_secret}
+    end
+
+    private def introspection_scope_string(value : JSON::Any?) : String
+      return "" unless value
+      if arr = value.as_a?
+        arr.map(&.as_s).join(' ')
+      else
+        value.as_s? || value.to_s
+      end
+    end
+
+    # --- GET /auth/token/info --------------------------------------------
+
+    # Returns metadata about the presented bearer access token, matching
+    # Doorkeeper's `token_info#show` shape.
+    struct TokenInfoResponse
+      include JSON::Serializable
+
+      getter resource_owner_id : String
+      getter scope : Array(String)
+      getter expires_in : Int64
+      getter application : Application
+      getter created_at : Int64
+
+      struct Application
+        include JSON::Serializable
+        @[JSON::Field(emit_null: false)]
+        getter uid : String?
+
+        def initialize(@uid)
+        end
+      end
+
+      def initialize(@resource_owner_id, @scope, @expires_in, uid : String?, @created_at)
+        @application = Application.new(uid)
+      end
+    end
+
+    @[AC::Route::GET("/token/info")]
+    @[AC::Route::GET("/oauth/token/info")]
+    def token_info : TokenInfoResponse
+      bearer = acquire_token
+      raise OAuthUnauthorized.new("invalid_token", "The access token is invalid") unless bearer
+
+      record = lookup_token_record(bearer)
+      raise OAuthUnauthorized.new("invalid_token", "The access token is invalid") unless record
+
+      exp = record.expires_at || 0_i64
+      remaining = exp - Time.utc.to_unix
+
+      TokenInfoResponse.new(
+        resource_owner_id: record.sub || "",
+        scope: (record.scope || "").split(' ', remove_empty: true),
+        expires_in: remaining,
+        uid: record.client_id.presence,
+        created_at: record.issued_at || 0_i64,
+      )
+    end
+
     # --- GET|POST /auth/userinfo -------------------------------------------
 
     # OIDC `userinfo`. The Bearer token's `sub` claim points at the

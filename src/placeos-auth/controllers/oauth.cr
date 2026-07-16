@@ -1,4 +1,5 @@
 require "authly"
+require "../utilities/jwks"
 
 module PlaceOS::Auth
   # OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
@@ -356,6 +357,23 @@ module PlaceOS::Auth
       resource = resource.presence
       raise Error::BadRequest.new("param is missing or the value is empty: resource") unless resource
       WebFingerResponse.new(resource, request_issuer)
+    end
+
+    # JWKS (RFC 7517) — the verification key for our RS256 tokens, at
+    # Doorkeeper-openid_connect's mount point. Derived from the same key
+    # `JWT_SECRET` configures for signing.
+    struct KeysResponse
+      include JSON::Serializable
+
+      getter keys : Array(JWKS::Key)
+
+      def initialize(@keys)
+      end
+    end
+
+    @[AC::Route::GET("/auth/oauth/discovery/keys")]
+    def keys : KeysResponse
+      KeysResponse.new([JWKS.key_for(::Authly.config.public_key)])
     end
 
     # Issuer per the legacy initializer's intent: scheme + request host.

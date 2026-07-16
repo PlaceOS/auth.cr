@@ -276,5 +276,122 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
     end
+
+    # ---- Failure & edge cases ----------------------------------------
+
+    describe "failure handling" do
+      generic_strat = -> {
+        new_oauth_strat.call(
+          "https://idp.example.test",
+          "/authorize",
+          "/token",
+          "https://idp.example.test/userinfo",
+          "openid email",
+          {"uid" => "sub", "email" => "email", "name" => "name"},
+        )
+      }
+
+      # OmniAuth (Ruby) bounces any provider round-trip failure to
+      # `/auth/failure`; auth.cr must do the same rather than surfacing a
+      # 500 to the browser.
+      it "redirects to /auth/failure when the token endpoint errors" do
+        strat = generic_strat.call
+        WebMock.stub(:post, "https://idp.example.test/token").to_return(
+          status: 400, headers: json_headers,
+          body: {error: "invalid_grant"}.to_json,
+        )
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=bad-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 302
+        result.headers["Location"].should start_with "/auth/failure"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "redirects to /auth/failure when the userinfo endpoint errors" do
+        strat = generic_strat.call
+        WebMock.stub(:post, "https://idp.example.test/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "ok", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://idp.example.test/userinfo").to_return(
+          status: 500, headers: HTTP::Headers{"Content-Type" => "text/plain"},
+          body: "upstream boom",
+        )
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=ok-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 302
+        result.headers["Location"].should start_with "/auth/failure"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "rejects a state mismatch on the B2C path-form callback with 401" do
+        strat = new_oauth_strat.call(
+          "https://contoso.b2clogin.com",
+          "/contoso.onmicrosoft.com/B2C_1_signupsignin/oauth2/v2.0/authorize",
+          "/contoso.onmicrosoft.com/B2C_1_signupsignin/oauth2/v2.0/token",
+          "https://contoso.b2clogin.com/contoso.onmicrosoft.com/openid/v2.0/userinfo",
+          "openid",
+          {"uid" => "sub", "email" => "email", "name" => "name"},
+        )
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback/#{URI.encode_www_form(strat.id.as(String))}?code=x&state=NOT-#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 401
+      ensure
+        strat.try &.destroy
+      end
+    end
+
+    describe "claim mapping edge cases" do
+      # Azure AD B2C commonly returns the address in an `emails` array
+      # rather than a scalar `email` claim; admins map it with index
+      # syntax (`emails[0]`). Verify the mapper resolves it.
+      it "maps a B2C emails[] array claim via index syntax" do
+        strat = new_oauth_strat.call(
+          "https://contoso.b2clogin.com",
+          "/contoso.onmicrosoft.com/B2C_1_signupsignin/oauth2/v2.0/authorize",
+          "/contoso.onmicrosoft.com/B2C_1_signupsignin/oauth2/v2.0/token",
+          "https://contoso.b2clogin.com/contoso.onmicrosoft.com/openid/v2.0/userinfo",
+          "openid",
+          {"uid" => "sub", "email" => "emails[0]", "name" => "name"},
+        )
+        uid = "b2c-arr-#{Random.rand(999999)}"
+        email = "dinah-#{Random.rand(999999)}@localhost"
+
+        WebMock.stub(:post, "https://contoso.b2clogin.com/contoso.onmicrosoft.com/B2C_1_signupsignin/oauth2/v2.0/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "b2c-arr", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://contoso.b2clogin.com/contoso.onmicrosoft.com/openid/v2.0/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {sub: uid, emails: [email], name: "Dinah Drake"}.to_json,
+        )
+
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback/#{URI.encode_www_form(strat.id.as(String))}?code=arr-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 303
+
+        lookup = ::PlaceOS::Model::UserAuthLookup.find?("auth-#{authority_id.call}-oauth2-#{uid}")
+        lookup.should_not be_nil
+        user = ::PlaceOS::Model::User.find!(lookup.not_nil!.user_id.not_nil!)
+        user.email.to_s.should eq email
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
+    end
   end
 end

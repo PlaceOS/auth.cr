@@ -1,4 +1,5 @@
 require "multi_auth"
+require "oauth2"
 require "placeos-models"
 
 require "../external_providers"
@@ -85,7 +86,20 @@ module PlaceOS::Auth
       # `{String, String}`) — exactly what multi_auth wants. For POST
       # callbacks (e.g. some Azure flows) we also fold in the form body.
       params = callback_params
-      oauth_user = engine.user(params)
+
+      # The provider round-trip (code->token exchange + userinfo fetch)
+      # can fail for reasons outside our control: the IdP rejects the
+      # code (`OAuth2::Error`), returns a non-JSON body
+      # (`JSON::ParseException`), or the network drops (`IO::Error`).
+      # OmniAuth bounced all of these to `/auth/failure`, so mirror that
+      # rather than surfacing a 500/400 to the browser.
+      begin
+        oauth_user = engine.user(params)
+      rescue ex : ::OAuth2::Error | JSON::ParseException | IO::Error
+        Log.warn(exception: ex) { {action: "provider_callbacks.callback", message: "provider round-trip failed", provider: provider} }
+        redirect_to "/auth/failure", :found
+        return
+      end
 
       session_user_for_link = session_user
       result = Utils::OAuthUserMapper.map(

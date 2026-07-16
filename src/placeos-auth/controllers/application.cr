@@ -11,6 +11,17 @@ module PlaceOS::Auth
       Log = ::PlaceOS::Auth::Log.for(self)
     end
 
+    # The legacy Ruby service accepts browser login forms posted as
+    # `application/x-www-form-urlencoded`; action-controller only ships a
+    # JSON body parser out of the box. Register a form parser so typed
+    # body arguments can be built from form posts. Body structs opt in by
+    # defining `self.from_form(URI::Params)`.
+    add_parser("application/x-www-form-urlencoded") do |klass, body_io, request|
+      request_charset = ActionController::Support.charset(request.headers)
+      body_io.set_encoding(request_charset) if request_charset
+      klass.from_form(URI::Params.parse(body_io.gets_to_end))
+    end
+
     include Utils::CurrentUser
     include Utils::SessionHelper
 

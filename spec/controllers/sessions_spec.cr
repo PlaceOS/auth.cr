@@ -30,6 +30,25 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "accepts an application/x-www-form-urlencoded body (browser login form)", tags: "signin-form" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+
+        body = URI::Params.build do |fp|
+          fp.add("email", user.email.to_s)
+          fp.add("password", password)
+        end
+        headers = HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/x-www-form-urlencoded",
+        }
+        result = client.post("/auth/signin", headers: headers, body: body)
+        result.status_code.should eq 202
+        result.headers["Set-Cookie"]?.should_not be_nil
+      ensure
+        user.try &.destroy
+      end
+
       it "redirects to a safe `continue` target when supplied" do
         password = "ok-password-1234"
         user = create_user.call(password)
@@ -90,7 +109,10 @@ module PlaceOS::Auth
     end
 
     describe "GET /auth/logout" do
-      it "clears the session, stamps logged_out_at, and redirects" do
+      # The legacy Ruby service redirects logout via `redirect_continue`,
+      # which issues a 302 (Rails default) to `continue || "/"`, using the
+      # authority's logout_url only as the cross-domain fallback.
+      it "clears the session, stamps logged_out_at, and 302-redirects to /" do
         password = "ok-password-1234"
         user = create_user.call(password)
         cookie = Spec.signin!(client, user, password)
@@ -100,7 +122,8 @@ module PlaceOS::Auth
           "Host"   => "localhost",
           "Cookie" => cookie,
         })
-        result.status_code.should eq 303
+        result.status_code.should eq 302
+        result.headers["Location"].should eq "/"
 
         reloaded = ::PlaceOS::Model::User.find!(user.id.as(String))
         reloaded.logged_out_at.should_not be_nil
@@ -109,9 +132,29 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "redirects safely even without a session" do
+      it "302-redirects to / even without a session" do
         result = client.get("/auth/logout", headers: HTTP::Headers{"Host" => "localhost"})
-        result.status_code.should eq 303
+        result.status_code.should eq 302
+        result.headers["Location"].should eq "/"
+      end
+
+      it "redirects to a safe same-site `continue` target" do
+        result = client.get("/auth/logout?continue=%2Fbye", headers: HTTP::Headers{"Host" => "localhost"})
+        result.status_code.should eq 302
+        result.headers["Location"].should eq "/bye"
+      end
+
+      it "falls back to the authority logout_url for a cross-domain `continue`" do
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        authority.logout_url = "/signed-out"
+        authority.save!
+
+        result = client.get(
+          "/auth/logout?continue=https%3A%2F%2Fevil.example%2Fx",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 302
+        result.headers["Location"].should eq "/signed-out"
       end
     end
 

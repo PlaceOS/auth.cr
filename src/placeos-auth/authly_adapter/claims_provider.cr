@@ -26,6 +26,18 @@ module PlaceOS::Auth::AuthlyAdapter
       sub : String,
       scope : String,
     ) : ::Authly::JWTPayload
+      # Authly builds `scope` as a space-separated string, but the legacy
+      # Ruby service emitted `scope: Array(opts[:scopes])` and downstream
+      # services decode it into `UserJWT#scope : Array(Scope)`. Emit an
+      # array so those consumers keep working.
+      payload["scope"] = scope.split
+
+      # Authly adds a `cid` (client id) claim that the legacy Ruby token
+      # never carried. Drop it so the emitted claim set matches
+      # Doorkeeper's byte-for-byte shape. (The persisted token record
+      # still keeps the client id via the separate token-store metadata.)
+      payload.delete("cid")
+
       user = ::PlaceOS::Model::User.find?(sub)
       return payload unless user
 

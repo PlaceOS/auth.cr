@@ -1,4 +1,5 @@
 require "multi_auth"
+require "oauth2"
 require "placeos-models"
 
 require "../external_providers"
@@ -40,7 +41,7 @@ module PlaceOS::Auth
       raise Error::NotFound.new("authority not found") if current_authority.nil?
 
       provider_id = id
-      redirect_uri = callback_uri(provider)
+      redirect_uri = callback_uri(provider, provider_id)
 
       # Validate provider + strat exist before redirecting out. If the
       # caller invented a strat id we'd rather 404 here than after the
@@ -56,7 +57,7 @@ module PlaceOS::Auth
       state = Random::Secure.hex(16)
       session[SESSION_OAUTH_STATE] = "#{provider}|#{provider_id || ""}|#{state}"
 
-      redirect_to engine.authorize_uri(state: state), :see_other
+      redirect_to rewrite_b2clogin_redirect(engine.authorize_uri(state: state)), :see_other
     end
 
     # ---- GET/POST /auth/:provider/callback ----------------------------
@@ -78,14 +79,27 @@ module PlaceOS::Auth
         raise Error::Unauthorized.new("oauth state mismatch")
       end
 
-      redirect_uri = callback_uri(provider)
+      redirect_uri = callback_uri(provider, id)
       engine = ::MultiAuth.make(provider, redirect_uri, id)
 
       # `request.query_params` is `URI::Params` (Enumerable of
       # `{String, String}`) — exactly what multi_auth wants. For POST
       # callbacks (e.g. some Azure flows) we also fold in the form body.
       params = callback_params
-      oauth_user = engine.user(params)
+
+      # The provider round-trip (code->token exchange + userinfo fetch)
+      # can fail for reasons outside our control: the IdP rejects the
+      # code (`OAuth2::Error`), returns a non-JSON body
+      # (`JSON::ParseException`), or the network drops (`IO::Error`).
+      # OmniAuth bounced all of these to `/auth/failure`, so mirror that
+      # rather than surfacing a 500/400 to the browser.
+      begin
+        oauth_user = engine.user(params)
+      rescue ex : ::OAuth2::Error | JSON::ParseException | IO::Error
+        Log.warn(exception: ex) { {action: "provider_callbacks.callback", message: "provider round-trip failed", provider: provider} }
+        redirect_to "/auth/failure", :found
+        return
+      end
 
       session_user_for_link = session_user
       result = Utils::OAuthUserMapper.map(
@@ -122,10 +136,31 @@ module PlaceOS::Auth
 
     # ---- private helpers -----------------------------------------------
 
-    private def callback_uri(provider : String) : String
+    # Builds the OAuth/SAML callback `redirect_uri`. The strategy id is
+    # carried as an `?id=<id>` query param — byte-for-byte what the legacy
+    # Ruby service sent (`generic_oauth#callback_url`) so the value stays
+    # identical to what external IdPs already have registered, and so the
+    # id round-trips back to `#callback`.
+    private def callback_uri(provider : String, id : String? = nil) : String
       scheme = request.headers["X-Forwarded-Proto"]? || (PlaceOS::Auth.production? ? "https" : "http")
       host = request.hostname || "localhost"
-      "#{scheme}://#{host}/auth/#{provider}/callback"
+      uri = "#{scheme}://#{host}/auth/#{provider}/callback"
+      uri += "?id=#{id}" if id && !id.empty?
+      uri
+    end
+
+    # Mirror the legacy `RewriteRedirectResponse` middleware. Azure AD B2C
+    # won't round-trip a query string on `redirect_uri`, so the strategy
+    # id is carried as a path segment instead. When the outbound authorize
+    # redirect targets a `*.b2clogin.com` host, rewrite the encoded
+    # `.../callback?id=<id>` to `.../callback/<id>` (the inbound path form
+    # is accepted by `callback_alias`). Only the authorize redirect is
+    # rewritten; the token-exchange `redirect_uri` stays in `?id=` form,
+    # exactly as the Ruby service behaved.
+    private def rewrite_b2clogin_redirect(authorize_uri : String) : String
+      host = URI.parse(authorize_uri).host
+      return authorize_uri unless host && host.ends_with?(".b2clogin.com")
+      authorize_uri.gsub("%3Fid%3D", "%2F").gsub("?id=", "/")
     end
 
     private def consume_stored_state : Tuple(String?, String?, String?)

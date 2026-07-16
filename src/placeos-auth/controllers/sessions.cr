@@ -113,12 +113,18 @@ module PlaceOS::Auth
         end
       end
 
-      target = if continue && (safe = sanitize_continue(continue))
+      # Mirror the legacy `redirect_continue(continue || "/")`: default to
+      # "/", honour a safe same-site continue, and only fall back to the
+      # authority's logout_url when continue points at another domain.
+      # Rails' `redirect_to` defaults to 302, so match that status too.
+      target = if continue.nil?
+                 "/"
+               elsif (safe = sanitize_continue(continue))
                  safe
                else
                  authority_logout_target(authority)
                end
-      redirect_to target.gsub(' ', "%20"), :see_other
+      redirect_to target.gsub(' ', "%20"), :found
     end
 
     # ---------- GET /auth/login ------------------------------------------

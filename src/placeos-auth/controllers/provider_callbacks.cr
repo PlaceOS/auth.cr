@@ -127,6 +127,15 @@ module PlaceOS::Auth
         end
       end
 
+      # Pop the pre-login `continue` target NOW: `session_user` below can tear
+      # down a stale session, and `remove_session`/`new_session` deliberately
+      # clear the session store — all of which used to wipe the target stashed
+      # by `/auth/login` before it was read, so every SSO login landed on "/"
+      # instead of returning to the app that started it. Ruby preserved
+      # `continue` across the provider round-trip; consuming it early here
+      # restores that.
+      continue_target = consume_continue
+
       redirect_uri = callback_uri(provider, id)
       engine = ::MultiAuth.make(provider, redirect_uri, id)
 
@@ -149,6 +158,21 @@ module PlaceOS::Auth
         return
       end
 
+      # Enforce the OAuth strategy's hosted-domain / attribute restriction
+      # (`ensure_matching`) against the userinfo we just fetched. The legacy
+      # Ruby strategy did this in `generic_oauth#raw_info`, raising
+      # "Invalid Hosted Domain" which OmniAuth turned into a `/auth/failure`
+      # redirect. Without this, an authority that restricted OAuth logins to
+      # a corporate domain would admit any account from the provider. SAML
+      # flows share this action but have no oauth strat, so gate on the
+      # oauth2 provider.
+      if provider == ExternalProviders::OAUTH2_PROVIDER &&
+         !ExternalProviders.ensure_matching?(id, oauth_user.raw_json)
+        Log.warn { {action: "provider_callbacks.callback", message: "ensure_matching restriction rejected login", provider: provider} }
+        redirect_to "/auth/failure", :found
+        return
+      end
+
       session_user_for_link = session_user
       result = Utils::OAuthUserMapper.map(
         authority: authority,
@@ -163,7 +187,7 @@ module PlaceOS::Auth
 
       LoginEvents.record_login(result.user, oauth_user.provider)
 
-      target = consume_continue || "/"
+      target = continue_target || "/"
       redirect_to target.gsub(' ', "%20"), :see_other
     end
 

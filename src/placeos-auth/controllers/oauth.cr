@@ -101,6 +101,27 @@ module PlaceOS::Auth
       raise OAuthUnauthorized.new(ex.type.to_s, ex.message)
     end
 
+    # RFC 7636 clients (ts-client / Backoffice, most OAuth SDKs) send the
+    # S256 `code_challenge` as base64url. authly validates it against
+    # Crystal's `Digest::SHA256.base64digest`, which is *standard* base64
+    # (`+`/`/`, padded) — so a real browser handshake never matches and
+    # every PKCE login fails with `unauthorized_client`. Normalize the
+    # url-safe alphabet back to standard base64 and pad to a multiple of 4
+    # so both padded and unpadded base64url challenges validate. Only S256
+    # is transformed; `plain` challenges are the verifier verbatim (whose
+    # RFC charset legitimately includes `-`/`_`) and must not be touched.
+    private def normalize_code_challenge(challenge : String?, method : String?) : String
+      value = challenge || ""
+      return value unless method.try(&.upcase) == "S256"
+      return value if value.empty?
+
+      standard = value.tr("-_", "+/")
+      if (remainder = standard.size % 4) != 0
+        standard += "=" * (4 - remainder)
+      end
+      standard
+    end
+
     # --- POST /auth/token -------------------------------------------------
 
     # `/auth/oauth/token` is the legacy Doorkeeper mount point; kept as an
@@ -205,7 +226,7 @@ module PlaceOS::Auth
           client_id,
           redirect_uri,
           scope,
-          code_challenge || "",
+          normalize_code_challenge(code_challenge, code_challenge_method),
           code_challenge_method || "",
           user.id.as(String),
         )

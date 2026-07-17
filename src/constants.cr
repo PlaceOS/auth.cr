@@ -46,20 +46,24 @@ module PlaceOS::Auth
   #
   # Resolution order:
   #   1. `COOKIE_SESSION_SECRET` if explicitly provided.
-  #   2. Otherwise derive a stable key from `PLACE_SERVER_SECRET` — the
-  #      platform always provides it, it is stable across restarts and
-  #      identical across replicas, so sessions survive a redeploy and a
-  #      cookie issued by one instance is accepted by another without any
-  #      new deployment config. It is SHA-256'd (not used raw) so it is
-  #      namespaced away from its settings-encryption use and always the
-  #      right length.
+  #   2. Otherwise derive a stable key from `SECRET_KEY_BASE` — the secret
+  #      the platform already wires for auth's session cookies. It's the
+  #      same value nginx uses for the asset-access cookie and what the
+  #      legacy Rails/Doorkeeper service derived its session key from, and
+  #      it is present in BOTH the docker-compose (`.env.secret_key`) and
+  #      k8s (`auth.secrets.SECRET_KEY_BASE`) deployments — unlike
+  #      `PLACE_SERVER_SECRET`, which is NOT provided to the auth pod in
+  #      k8s. It is stable across restarts and identical across replicas,
+  #      so sessions survive a redeploy. SHA-256'd (not used raw) so it is
+  #      namespaced away from the raw-HMAC use of the same secret and is
+  #      always the right length.
   #   3. Only if neither is set (a bare dev box) do we fall back to an
   #      ephemeral per-boot key, which deliberately invalidates cookies.
   COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]?.presence || begin
-    if server_secret = ENV["PLACE_SERVER_SECRET"]?.presence
-      Digest::SHA256.hexdigest("auth.cr/cookie-session/#{server_secret}")
+    if secret_key_base = ENV["SECRET_KEY_BASE"]?.presence
+      Digest::SHA256.hexdigest("auth.cr/cookie-session/#{secret_key_base}")
     else
-      Log.warn { "neither COOKIE_SESSION_SECRET nor PLACE_SERVER_SECRET set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
+      Log.warn { "neither COOKIE_SESSION_SECRET nor SECRET_KEY_BASE set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
       Random::Secure.hex(32)
     end
   end

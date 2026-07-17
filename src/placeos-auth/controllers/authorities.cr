@@ -57,10 +57,19 @@ module PlaceOS::Auth
         raise Error::NotFound.new("authority not found for host #{request.hostname}")
       end
 
+      session = signed_in?
+      valid = token_valid?
+
+      # Mirror Ruby `AuthoritiesController#current`: a valid Bearer token /
+      # api-key authorises asset access, so (re)issue the nginx-validated
+      # `verified` cookie. After `signed_in?` so a stale-session teardown
+      # (remove_session → clear_asset_access) can't clobber the fresh one.
+      configure_asset_access if valid
+
       AuthorityResponse.new(
         authority: authority,
-        session: signed_in?,
-        token_valid: token_valid?,
+        session: session,
+        token_valid: valid,
         production: Auth.production?,
       )
     end

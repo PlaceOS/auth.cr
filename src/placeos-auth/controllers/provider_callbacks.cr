@@ -98,9 +98,22 @@ module PlaceOS::Auth
       raise Error::NotFound.new("authority not found") if authority.nil?
 
       expect_state, expect_provider, expect_id = consume_stored_state
-      if expect_state.nil? || state != expect_state || expect_provider != provider || expect_id != (id || "")
-        Log.warn { {action: "provider_callbacks.callback", message: "state mismatch", provider: provider} }
-        raise Error::Unauthorized.new("oauth state mismatch")
+
+      # SAML (adfs) uses the HTTP-POST binding: the IdP auto-submits the signed
+      # assertion cross-site to the ACS URL, so the browser withholds our
+      # SameSite=Lax auth-flow cookie and the CSRF `state` stashed in
+      # `#initiate` is unavailable here — and the IdP echoes the CSRF value
+      # back as `RelayState`, not `state`, anyway. The legacy Ruby service
+      # (omniauth-saml) never did session-state CSRF for SAML; the callback was
+      # authenticated purely by the signed assertion (idp_cert /
+      # idp_cert_fingerprint, want_assertions_signed). Mirror that: skip the
+      # session-state check for SAML and let `engine.user` validate the
+      # signature. The OAuth2 path (Lax cookie sent) keeps full validation.
+      unless saml_provider?(provider)
+        if expect_state.nil? || state != expect_state || expect_provider != provider || expect_id != (id || "")
+          Log.warn { {action: "provider_callbacks.callback", message: "state mismatch", provider: provider} }
+          raise Error::Unauthorized.new("oauth state mismatch")
+        end
       end
 
       redirect_uri = callback_uri(provider, id)
@@ -185,6 +198,15 @@ module PlaceOS::Auth
       host = URI.parse(authorize_uri).host
       return authorize_uri unless host && host.ends_with?(".b2clogin.com")
       authorize_uri.gsub("%3Fid%3D", "%2F").gsub("?id=", "/")
+    end
+
+    # SAML callbacks arrive on the `adfs`/`saml` provider names registered by
+    # `ExternalProviders`. They cannot participate in session-state CSRF (the
+    # cross-site HTTP-POST binding drops the SameSite=Lax cookie) and are
+    # authenticated by the signed assertion instead.
+    private def saml_provider?(provider : String) : Bool
+      provider == ExternalProviders::SAML_PROVIDER ||
+        provider == ExternalProviders::SAML_PROVIDER_ALIAS
     end
 
     private def consume_stored_state : Tuple(String?, String?, String?)

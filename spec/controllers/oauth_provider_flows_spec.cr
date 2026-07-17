@@ -423,6 +423,121 @@ module PlaceOS::Auth
       end
     end
 
+    # ---- post-login continue + ensure_matching (PPT-2536) --------------
+
+    session_cookie = ->(result : HTTP::Client::Response, fallback : String) {
+      sc = result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?
+      sc ? "#{sc.name}=#{sc.value}" : fallback
+    }
+
+    google_urls = ->(scopes : String, mappings : Hash(String, String)) {
+      new_oauth_strat.call(
+        "https://accounts.google.com", "/o/oauth2/v2/auth", "/token",
+        "https://openidconnect.googleapis.com/v1/userinfo", scopes, mappings,
+      )
+    }
+
+    describe "post-login continue" do
+      it "returns to the app that started the login (continue survives the SSO round-trip)" do
+        strat = google_urls.call("openid email", {"uid" => "sub", "email" => "email"})
+        uid = "google-cont-#{Random.rand(999999)}"
+
+        WebMock.stub(:post, "https://accounts.google.com/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "g-access", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://openidconnect.googleapis.com/v1/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {sub: uid, email: "cont-#{Random.rand(999999)}@localhost"}.to_json,
+        )
+
+        # Hop 1: the login entrypoint stores `continue` on the session and
+        # bounces to the provider kickoff.
+        login = client.get(
+          "/auth/login?provider=oauth2&id=#{URI.encode_www_form(strat.id.as(String))}&continue=%2Fbackoffice%2F",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        login.status_code.should eq 303
+        cookie = session_cookie.call(login, "")
+        cookie.should_not be_empty
+
+        # Hop 2: kickoff -> IdP redirect (state minted, session updated).
+        kick = client.get(login.headers["Location"], headers: HTTP::Headers{
+          "Host" => "localhost", "Cookie" => cookie,
+        })
+        kick.status_code.should eq 303
+        state = URI::Params.parse(kick.headers["Location"].split('?', 2).last)["state"]
+        cookie = session_cookie.call(kick, cookie)
+
+        # Hop 3: provider callback -> must land back on /backoffice/.
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=g-code&state=#{state}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
+        )
+        result.status_code.should eq 303
+        result.headers["Location"].should eq "/backoffice/"
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
+    end
+
+    describe "ensure_matching" do
+      make_restricted_strat = -> {
+        strat = google_urls.call("openid email", {"uid" => "sub", "email" => "email"})
+        strat.ensure_matching = {"email" => ["@corp.example$"]}
+        strat.save!
+        strat
+      }
+
+      stub_round_trip = ->(email : String, uid : String) {
+        WebMock.stub(:post, "https://accounts.google.com/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "g-access", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://openidconnect.googleapis.com/v1/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {sub: uid, email: email}.to_json,
+        )
+      }
+
+      it "rejects a login whose userinfo fails the restriction (-> /auth/failure)" do
+        strat = make_restricted_strat.call
+        uid = "google-em-reject-#{Random.rand(999999)}"
+        stub_round_trip.call("eve@evil.test", uid)
+
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=g-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 302
+        result.headers["Location"].should eq "/auth/failure"
+        # and no local account was minted for the rejected identity
+        ::PlaceOS::Model::UserAuthLookup.find?("auth-#{authority_id.call}-oauth2-#{uid}").should be_nil
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
+
+      it "admits a login whose userinfo satisfies the restriction" do
+        strat = make_restricted_strat.call
+        uid = "google-em-pass-#{Random.rand(999999)}"
+        stub_round_trip.call("alice@corp.example", uid)
+
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=g-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 303
+        ::PlaceOS::Model::UserAuthLookup.find?("auth-#{authority_id.call}-oauth2-#{uid}").should_not be_nil
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
+    end
+
     # ---- authorize_params + info_mappings comma-fallback (PPT-2536) ----
 
     describe "authorize_params" do

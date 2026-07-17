@@ -140,6 +140,35 @@ module PlaceOS::Auth
         cleanup_login.call(uid) if uid
         strat.try &.destroy
       end
+
+      it "recovers the strat id from the session when the IdP drops ?id= on the callback" do
+        strat = google_strat.call
+        uid = "google-noid-#{Random.rand(999999)}"
+        email = "grace-#{Random.rand(999999)}@localhost"
+
+        WebMock.stub(:post, "https://accounts.google.com/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "g-access", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://openidconnect.googleapis.com/v1/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {sub: uid, email: email, name: "Grace Hopper", given_name: "Grace", family_name: "Hopper"}.to_json,
+        )
+
+        k = kickoff.call(strat.id.as(String))
+        # The callback URL deliberately OMITS `?id=` (some IdPs don't round-trip
+        # it). The id must be recovered from the session state stashed at kickoff
+        # — otherwise this 401s "oauth state mismatch".
+        result = client.get(
+          "/auth/oauth2/callback?code=g-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 303
+        ::PlaceOS::Model::UserAuthLookup.find?("auth-#{authority_id.call}-oauth2-#{uid}").should_not be_nil
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
     end
 
     # ---- Azure AD / Entra ID -----------------------------------------

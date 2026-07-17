@@ -109,5 +109,39 @@ module PlaceOS::Auth
         result.status_code.should eq 404
       end
     end
+
+    # The callback's session-state CSRF check is skipped for SAML — the
+    # cross-site HTTP-POST binding drops the SameSite=Lax cookie so the stashed
+    # state is unavailable, and the signed assertion authenticates instead
+    # (PPT-2536). It stays fully enforced for the OAuth2 path.
+    describe "callback state check" do
+      it "does NOT reject a SAML callback as an 'oauth state mismatch'" do
+        strat = create_saml_strat.call
+        # No prior kickoff => no stored session state. An OAuth2 callback would
+        # 401 "oauth state mismatch" here; a SAML callback must get PAST that
+        # check (and instead fail later at signed-assertion validation).
+        result = client.post(
+          "/auth/saml/callback?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{
+            "Host"         => "localhost",
+            "Content-Type" => "application/x-www-form-urlencoded",
+          },
+          body: "SAMLResponse=#{URI.encode_www_form("not-a-real-assertion")}&RelayState=xyz",
+        )
+        result.body.should_not contain "oauth state mismatch"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "still enforces the session-state check for an OAuth2 callback" do
+        # No stored state => the OAuth2 path rejects with a state mismatch.
+        result = client.get(
+          "/auth/oauth2/callback?id=whatever&state=whatever",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 401
+        result.body.should contain "oauth state mismatch"
+      end
+    end
   end
 end

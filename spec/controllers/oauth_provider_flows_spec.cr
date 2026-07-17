@@ -393,5 +393,77 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
     end
+
+    # ---- authorize_params + info_mappings comma-fallback (PPT-2536) ----
+
+    describe "authorize_params" do
+      it "merges the strat's authorize_params into the outbound authorize URL" do
+        strat = new_oauth_strat.call(
+          "https://accounts.google.com", "/o/oauth2/v2/auth", "/token",
+          "https://openidconnect.googleapis.com/v1/userinfo",
+          "openid email", {"uid" => "sub", "email" => "email"},
+        )
+        strat.authorize_params = {"access_type" => "offline", "prompt" => "consent"}
+        strat.save!
+
+        k = kickoff.call(strat.id.as(String))
+        params = URI::Params.parse(k[:location].split('?', 2).last)
+        # the extra params Ruby merged (Google refresh-token flow) are present
+        params["access_type"].should eq "offline"
+        params["prompt"].should eq "consent"
+        # and the standard params + embedded redirect_uri are untouched
+        params["client_id"].should eq strat.client_id
+        params["response_type"].should eq "code"
+        params["redirect_uri"].should eq "http://localhost/auth/oauth2/callback?id=#{strat.id}"
+      ensure
+        strat.try &.destroy
+      end
+    end
+
+    describe "info_mappings comma-fallback" do
+      it "resolves through comma-separated mapping keys, incl. the getter-only uid" do
+        strat = new_oauth_strat.call(
+          "https://login.microsoftonline.com", "/common/oauth2/v2.0/authorize",
+          "/common/oauth2/v2.0/token", "https://graph.microsoft.com/oidc/userinfo",
+          "openid email profile",
+          {
+            "uid"   => "id,sub,oid",                   # getter-only field, 3rd key wins
+            "email" => "email,mail,userPrincipalName", # settable field, 3rd key wins
+            "name"  => "name,displayName",
+          },
+        )
+        uid = "az-oid-#{Random.rand(999999)}"
+        upn = "grace-#{Random.rand(999999)}@contoso.com"
+
+        WebMock.stub(:post, "https://login.microsoftonline.com/common/oauth2/v2.0/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "az-access", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        # profile carries ONLY the fallback keys: `oid` (not id/sub) and
+        # `userPrincipalName` (not email/mail) and `displayName` (not name)
+        WebMock.stub(:get, "https://graph.microsoft.com/oidc/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {oid: uid, userPrincipalName: upn, displayName: "Grace Hopper"}.to_json,
+        )
+
+        k = kickoff.call(strat.id.as(String))
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=az-code&state=#{k[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => k[:cookie]},
+        )
+        result.status_code.should eq 303
+
+        # the lookup key is derived from `uid` — proves comma-fallback fixed the
+        # getter-only uid field (only the get_value_from_json patch can)
+        lookup = ::PlaceOS::Model::UserAuthLookup.find?("auth-#{authority_id.call}-oauth2-#{uid}")
+        lookup.should_not be_nil
+        user = ::PlaceOS::Model::User.find!(lookup.not_nil!.user_id.not_nil!)
+        # and the settable email field fell back to userPrincipalName
+        user.email.to_s.should eq upn
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
+    end
   end
 end

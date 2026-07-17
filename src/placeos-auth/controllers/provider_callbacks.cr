@@ -57,7 +57,31 @@ module PlaceOS::Auth
       state = Random::Secure.hex(16)
       session[SESSION_OAUTH_STATE] = "#{provider}|#{provider_id || ""}|#{state}"
 
-      redirect_to rewrite_b2clogin_redirect(engine.authorize_uri(state: state)), :see_other
+      authorize_uri = append_authorize_params(engine.authorize_uri(state: state), provider_id)
+      redirect_to rewrite_b2clogin_redirect(authorize_uri), :see_other
+    end
+
+    # Merges an OAuth strategy's configured `authorize_params` into the
+    # outbound authorize URL — e.g. Google `access_type=offline` +
+    # `prompt=consent` (required to receive a refresh token) or Azure
+    # `domain_hint`. multi_auth's `GenericOAuth2` has no concept of the
+    # column, so the legacy Ruby service's merge is restored here (auth.cr
+    # already builds + rewrites this URL). The authorize URL always carries a
+    # query string (`client_id`/`redirect_uri`/`response_type` are always
+    # present), so a plain `&`-append keeps the embedded `redirect_uri`
+    # untouched — important because `rewrite_b2clogin_redirect` later matches
+    # on it. Non-OAuth (SAML) providers have no such strat, so this no-ops.
+    private def append_authorize_params(authorize_uri : String, provider_id : String?) : String
+      strat = ExternalProviders.find_oauth_strat(provider_id)
+      return authorize_uri if strat.nil?
+
+      params = strat.authorize_params
+      return authorize_uri if params.empty?
+
+      extra = URI::Params.build do |form|
+        params.each { |key, value| form.add(key, value) }
+      end
+      "#{authorize_uri}&#{extra}"
     end
 
     # ---- GET/POST /auth/:provider/callback ----------------------------

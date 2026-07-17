@@ -52,6 +52,12 @@ module PlaceOS::Auth::AuthlyAdapter
     def authorized?(client_id : String, client_secret : String) : Bool
       app = find_app(client_id)
       return false unless app
+      # Public clients (SPAs / native apps, `confidential: false`) don't
+      # authenticate with a secret — they use PKCE. Doorkeeper skipped
+      # client-secret validation for them, so we do too; `client_credentials`
+      # is still denied to public clients in `allowed_grant_type?` below, so
+      # this bypass can't be used to mint tokens without proof of possession.
+      return true unless app.confidential
       Crypto::Subtle.constant_time_compare(app.secret, client_secret)
     end
 
@@ -72,7 +78,14 @@ module PlaceOS::Auth::AuthlyAdapter
     # `Authly.config.clients` must implement it.
     def allowed_grant_type?(client_id : String, grant_type : String) : Bool
       return false unless ALLOWED_GRANT_TYPES.includes?(grant_type)
-      !find_app(client_id).nil?
+      app = find_app(client_id)
+      return false unless app
+      # `client_credentials` authenticates purely by secret, so it is only
+      # ever valid for a confidential client. A public client that reached
+      # `authorized?` via the secret bypass above must not be able to fall
+      # through to a client-credentials grant.
+      return false if grant_type == "client_credentials" && !app.confidential
+      true
     end
 
     # Returns the owning user's ID for use as the `sub` claim of

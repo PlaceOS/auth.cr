@@ -19,6 +19,7 @@ module PlaceOS::Auth
       app.redirect_uri = redirect
       app.scopes = scopes
       app.owner_id = user.id.as(String)
+      app.confidential = true
       app.save!
       {user, app}
     }

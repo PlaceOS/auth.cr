@@ -110,7 +110,13 @@ module PlaceOS::Auth
     def token(
       grant_type : String,
       client_id : String,
-      client_secret : String,
+      # Public clients (SPAs / native apps registered with
+      # `confidential: false`) cannot hold a secret — they authenticate
+      # via PKCE. Doorkeeper made `client_secret` optional for them, so a
+      # required param here would 422 every Backoffice token exchange
+      # before any OAuth logic ran. The client adapter enforces the secret
+      # only for confidential clients (see `AuthlyAdapter::Client`).
+      client_secret : String? = nil,
       code : String? = nil,
       redirect_uri : String? = nil,
       refresh_token : String? = nil,
@@ -129,7 +135,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          scope: scope,
                        )
                      when "authorization_code"
@@ -138,7 +144,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          code: code,
                          redirect_uri: redirect_uri,
                          verifier: code_verifier || "",
@@ -148,7 +154,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          refresh_token: refresh_token,
                        )
                      else
@@ -574,7 +580,9 @@ module PlaceOS::Auth
         @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token"]
         @subject_types_supported = ["public"]
         @id_token_signing_alg_values_supported = ["RS256"]
-        @token_endpoint_auth_methods_supported = ["client_secret_post"]
+        # `none` advertises that public clients may authenticate the token
+        # endpoint with PKCE alone (no client_secret) — see the token action.
+        @token_endpoint_auth_methods_supported = ["client_secret_post", "none"]
         @code_challenge_methods_supported = ["S256"]
         @claims_supported = ["sub", "iss", "aud", "exp", "iat", "email", "full_name", "given_name", "family_name", "nickname", "phone_number", "preferred_username"]
       end

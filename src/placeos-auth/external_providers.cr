@@ -72,6 +72,59 @@ module PlaceOS::Auth::ExternalProviders
     )
   end
 
+  # Enforce the OAuth strategy's `ensure_matching` hosted-domain /
+  # attribute restriction against the userinfo JSON the provider returned.
+  # Mirrors the legacy Ruby `OmniAuth::Strategies::GenericOauth#raw_info`
+  # ("Invalid Hosted Domain"): for *every* configured field, at least one
+  # of that field's values must match (case-insensitive, unanchored regex)
+  # at least one of its configured patterns. A missing field — or a field
+  # whose values match no pattern — fails. Returns `true` when there is
+  # nothing to enforce (no strat, or empty config) or when every field
+  # passes; `false` otherwise. Fails closed: an unparseable pattern simply
+  # cannot match anything.
+  def self.ensure_matching?(provider_id : String?, raw_json : String) : Bool
+    strat = find_oauth_strat(provider_id)
+    return true if strat.nil?
+
+    required = strat.ensure_matching
+    return true if required.empty?
+
+    info = JSON.parse(raw_json)
+    required.all? do |field, patterns|
+      values = field_values(info, field)
+      regexes = patterns.compact_map do |pattern|
+        Regex.new(pattern, Regex::CompileOptions::IGNORE_CASE) rescue nil
+      end
+      values.any? { |value| regexes.any?(&.matches?(value)) }
+    end
+  end
+
+  # Coerce a userinfo JSON field into the list of string values to test.
+  # Matches Ruby's `Array(inf[field])`: missing/null -> [], scalar ->
+  # [scalar], array -> its (stringified) elements.
+  private def self.field_values(info : JSON::Any, field : String) : Array(String)
+    value = info[field]?
+    return [] of String if value.nil?
+
+    case raw = value.raw
+    when String
+      [raw]
+    when Array(JSON::Any)
+      raw.compact_map do |element|
+        element_raw = element.raw
+        case element_raw
+        when Nil    then nil
+        when String then element_raw
+        else             element_raw.to_s
+        end
+      end
+    when Nil
+      [] of String
+    else
+      [raw.to_s]
+    end
+  end
+
   # ---- SAML ---------------------------------------------------------
 
   def self.find_saml_strat(provider_id : String?) : ::PlaceOS::Model::SamlAuthentication?

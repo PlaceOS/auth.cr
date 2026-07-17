@@ -15,10 +15,12 @@ module PlaceOS::Auth::Spec
     }
     result = client.post("/auth/signin", headers: headers, body: body)
     raise "signin failed: #{result.status_code} #{result.body}" unless {202, 303}.includes?(result.status_code)
-    set_cookie = result.headers["Set-Cookie"]?
-    raise "signin did not return a Set-Cookie header" if set_cookie.nil?
-    # Cookie header format echoes back only the name=value pair.
-    set_cookie.split(';', 2).first.strip
+    # The response now carries two Set-Cookie headers (the session cookie
+    # and the nginx `verified` asset-access cookie), so pick the session
+    # one by name rather than assuming header order.
+    session = result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?
+    raise "signin did not set the session cookie" if session.nil?
+    "#{session.name}=#{session.value}"
   end
 end
 

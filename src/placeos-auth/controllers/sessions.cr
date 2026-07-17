@@ -135,7 +135,7 @@ module PlaceOS::Auth
     #     not be reached via the auth redirect dance);
     #   * if `continue` carries an `api-key` query/fragment param and
     #     the key validates, fall through to the continue target
-    #     directly (asset-access cookie deferred to Phase 6);
+    #     directly (issuing the nginx-validated asset-access cookie);
     #   * otherwise redirect to `/auth/:provider?id=...` (when
     #     `provider` given) or to the authority's configured login URL.
     @[AC::Route::GET("/login")]
@@ -152,6 +152,10 @@ module PlaceOS::Auth
         raise Error::BadRequest.new("non-html assets must not pass through /auth/login") if !ext.empty? && ext.downcase != ".html"
 
         if inline_api_key_valid?(continue)
+          # The api-key already authorises asset access; issue the
+          # nginx-validated cookie so the continue target loads directly
+          # (Ruby did this via `configure_asset_access` before redirect).
+          configure_asset_access
           redirect_to continue.gsub(' ', "%20"), :see_other
           return
         end

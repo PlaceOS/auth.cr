@@ -1,3 +1,5 @@
+require "http/cookie"
+require "openssl/hmac"
 require "uri"
 
 require "placeos-models/user"
@@ -22,6 +24,13 @@ module PlaceOS::Auth
     SESSION_EXP_KEY      = "exp"
     SESSION_IAT_KEY      = "iat"
     SESSION_CONTINUE_KEY = "continue"
+
+    # nginx gates every SPA asset behind this cookie (access_by_lua_block in
+    # nginx.conf.template): it recomputes HMAC-SHA256(SECRET_KEY_BASE, <data>)
+    # and redirects to /auth/login when the cookie is missing or its
+    # signature is wrong. Path "/" because assets live outside /auth.
+    VERIFIED_COOKIE_NAME = "verified"
+    VERIFIED_COOKIE_PATH = "/"
 
     # Returns the user referenced by the current session cookie, or
     # `nil` if there is no session, the session has expired, the user
@@ -72,12 +81,56 @@ module PlaceOS::Auth
       sess[SESSION_UID_KEY] = user.id.as(String)
       sess[SESSION_EXP_KEY] = expires_at
       sess[SESSION_IAT_KEY] = iat_usec
+
+      # Issue the nginx-validated asset-access cookie so the SPA loads
+      # instead of bouncing through /auth/login. Mirrors the Ruby service,
+      # whose `new_session` ended by calling `configure_asset_access`.
+      configure_asset_access
     end
 
     # Tears down the current session and clears any cached `current_user`.
     def remove_session : Nil
       session.clear
+      clear_asset_access
       @current_user = nil
+    end
+
+    # Issues the long-lived `verified` asset-access cookie nginx validates
+    # before serving SPA assets. Byte-for-byte parity with the Ruby
+    # `CurrentAuthorityHelper#configure_asset_access`:
+    #   value = "<data>.<hmac>",  data = 16 hex chars,
+    #   hmac  = hex(HMAC-SHA256(SECRET_KEY_BASE, data))
+    # nginx splits on the first "." and recomputes the HMAC with the same
+    # key. Public so token-only login paths (inline api-key continue,
+    # `/auth/authority` polling) can re-issue it without a full session.
+    def configure_asset_access : Nil
+      data = Random::Secure.hex(8)
+      signature = OpenSSL::HMAC.hexdigest(:sha256, SECRET_KEY_BASE, data)
+      response.cookies[VERIFIED_COOKIE_NAME] = HTTP::Cookie.new(
+        name: VERIFIED_COOKIE_NAME,
+        value: "#{data}.#{signature}",
+        path: VERIFIED_COOKIE_PATH,
+        expires: Time.utc + (19 * 365).days,
+        secure: true,
+        http_only: true,
+        samesite: HTTP::Cookie::SameSite::None,
+      )
+    end
+
+    # Deletes the `verified` cookie by overwriting it with an expired one.
+    # Name + path MUST match `configure_asset_access` or the browser keeps
+    # the live cookie. Mirrors the Ruby `remove_session`'s
+    # `cookies.delete(:verified, path: "/")`.
+    private def clear_asset_access : Nil
+      response.cookies[VERIFIED_COOKIE_NAME] = HTTP::Cookie.new(
+        name: VERIFIED_COOKIE_NAME,
+        value: "",
+        path: VERIFIED_COOKIE_PATH,
+        expires: Time.unix(0),
+        secure: true,
+        http_only: true,
+        samesite: HTTP::Cookie::SameSite::None,
+      )
     end
 
     # Saves the (sanitised) `continue` path on the session so the

@@ -22,6 +22,19 @@ module PlaceOS::Auth
   # rotating this value is a breaking change for token consumers.
   JWT_SECRET = ENV["JWT_SECRET"]?
 
+  # HMAC-SHA256 key for the nginx-validated `verified` asset-access cookie.
+  # nginx renders this SAME env var into its access_by_lua_block
+  # (`local secret = "${SECRET_KEY_BASE}"`, nginx.conf.template) and
+  # recomputes the signature on every SPA asset request. It MUST equal the
+  # value auth uses here (and the legacy Rails `secret_key_base`) or nginx
+  # rejects every cookie we issue and bounces the browser into an
+  # /auth/login redirect loop. Defaults to "" so auth still agrees with
+  # nginx when neither has it set (dev boxes).
+  SECRET_KEY_BASE = ENV["SECRET_KEY_BASE"]?.presence || begin
+    Log.error { "SECRET_KEY_BASE unset — `verified` cookie will use an empty HMAC key; set it to the value nginx uses or the SPA hits a login redirect loop" } if PROD
+    ""
+  end
+
   # Default token + session lifetimes (per-Authority override available
   # via `authority.internals["session_timeout"]`).
   SESSION_TIMEOUT_MINUTES = (ENV["SESSION_TIMEOUT_MINUTES"]? || "1440").to_i

@@ -83,6 +83,7 @@ module PlaceOS::Auth
       claims["u"]["e"].as_s.should eq user.email.to_s.downcase
       claims["u"]["p"].as_i.should eq 3 # support + sys_admin
 
+
     ensure
       app.try &.destroy
       user.try &.destroy

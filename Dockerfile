@@ -89,9 +89,9 @@ COPY --from=build /app/openapi.yml /openapi.yml
 USER appuser:appuser
 
 # Spider-gazelle has a built in helper for health checks
-HEALTHCHECK CMD ["/placeos-auth", "-c", "http://127.0.0.1:3000/auth/healthz"]
+HEALTHCHECK CMD ["/placeos-auth", "-c", "http://127.0.0.1:8080/auth/healthz"]
 
 # Run the app binding on port 3000
-EXPOSE 3000
+EXPOSE 8080
 ENTRYPOINT ["/placeos-auth"]
-CMD ["/placeos-auth", "-b", "0.0.0.0", "-p", "3000"]
+CMD ["/placeos-auth", "-b", "0.0.0.0", "-p", "8080"]

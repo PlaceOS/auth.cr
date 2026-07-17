@@ -1,3 +1,5 @@
+require "digest/sha256"
+
 module PlaceOS::Auth
   APP_NAME    = "auth"
   API_VERSION = "v2"
@@ -22,6 +24,19 @@ module PlaceOS::Auth
   # rotating this value is a breaking change for token consumers.
   JWT_SECRET = ENV["JWT_SECRET"]?
 
+  # HMAC-SHA256 key for the nginx-validated `verified` asset-access cookie.
+  # nginx renders this SAME env var into its access_by_lua_block
+  # (`local secret = "${SECRET_KEY_BASE}"`, nginx.conf.template) and
+  # recomputes the signature on every SPA asset request. It MUST equal the
+  # value auth uses here (and the legacy Rails `secret_key_base`) or nginx
+  # rejects every cookie we issue and bounces the browser into an
+  # /auth/login redirect loop. Defaults to "" so auth still agrees with
+  # nginx when neither has it set (dev boxes).
+  SECRET_KEY_BASE = ENV["SECRET_KEY_BASE"]?.presence || begin
+    Log.error { "SECRET_KEY_BASE unset — `verified` cookie will use an empty HMAC key; set it to the value nginx uses or the SPA hits a login redirect loop" } if PROD
+    ""
+  end
+
   # Default token + session lifetimes (per-Authority override available
   # via `authority.internals["session_timeout"]`).
   SESSION_TIMEOUT_MINUTES = (ENV["SESSION_TIMEOUT_MINUTES"]? || "1440").to_i
@@ -40,11 +55,30 @@ module PlaceOS::Auth
 
   # Secret used by `ActionController::Session::MessageEncryptor` to
   # encrypt + sign the session cookie. Must be at least 32 bytes for
-  # AES-256. In production this MUST be set; the dev fallback generates
-  # a new key per boot, which deliberately invalidates existing cookies.
-  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]? || begin
-    Log.warn { "COOKIE_SESSION_SECRET not set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
-    Random::Secure.hex(32)
+  # AES-256.
+  #
+  # Resolution order:
+  #   1. `COOKIE_SESSION_SECRET` if explicitly provided.
+  #   2. Otherwise derive a stable key from `SECRET_KEY_BASE` — the secret
+  #      the platform already wires for auth's session cookies. It's the
+  #      same value nginx uses for the asset-access cookie and what the
+  #      legacy Rails/Doorkeeper service derived its session key from, and
+  #      it is present in BOTH the docker-compose (`.env.secret_key`) and
+  #      k8s (`auth.secrets.SECRET_KEY_BASE`) deployments — unlike
+  #      `PLACE_SERVER_SECRET`, which is NOT provided to the auth pod in
+  #      k8s. It is stable across restarts and identical across replicas,
+  #      so sessions survive a redeploy. SHA-256'd (not used raw) so it is
+  #      namespaced away from the raw-HMAC use of the same secret and is
+  #      always the right length.
+  #   3. Only if neither is set (a bare dev box) do we fall back to an
+  #      ephemeral per-boot key, which deliberately invalidates cookies.
+  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]?.presence || begin
+    if secret_key_base = ENV["SECRET_KEY_BASE"]?.presence
+      Digest::SHA256.hexdigest("auth.cr/cookie-session/#{secret_key_base}")
+    else
+      Log.warn { "neither COOKIE_SESSION_SECRET nor SECRET_KEY_BASE set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
+      Random::Secure.hex(32)
+    end
   end
 
   # OIDC issuer claim. Kept as "POS" so existing services keep validating

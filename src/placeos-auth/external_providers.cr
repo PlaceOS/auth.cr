@@ -3,6 +3,10 @@ require "multi_auth/providers/generic_oauth2"
 require "multi_auth_saml"
 require "placeos-models"
 
+# Reopens `MultiAuth::Provider::GenericOAuth2` to restore comma-fallback
+# `info_mappings` semantics (loaded after the shard's classes are defined).
+require "./multi_auth_patch"
+
 # Registers two `multi_auth` factory blocks — `oauth2` and `saml` —
 # both driven by per-tenant rows in the DB. The `ProviderCallbacks`
 # controller picks the right factory based on the `:provider` path

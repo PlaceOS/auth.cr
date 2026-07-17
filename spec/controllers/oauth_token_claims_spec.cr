@@ -32,6 +32,7 @@ module PlaceOS::Auth
       app.redirect_uri = "https://app.example/cb"
       app.scopes = scopes
       app.owner_id = user.id.as(String)
+      app.confidential = true
       app.save!
 
       cookie = Spec.signin!(client, user, password)
@@ -149,6 +150,7 @@ module PlaceOS::Auth
         app.redirect_uri = "https://app.example/cb"
         app.scopes = "public"
         app.owner_id = user.id.as(String)
+        app.confidential = true
         app.save!
 
         headers = HTTP::Headers{

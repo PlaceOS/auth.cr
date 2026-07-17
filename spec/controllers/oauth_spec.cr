@@ -20,6 +20,10 @@ module PlaceOS::Auth
       app.redirect_uri = redirect
       app.scopes = scopes
       app.owner_id = user.id.as(String)
+      # These fixtures authenticate with a real client_secret, so they
+      # model a confidential client. Public clients are covered separately
+      # (see the "public client" describe block below).
+      app.confidential = true
       app.save!
       {user, app}
     }
@@ -183,6 +187,92 @@ module PlaceOS::Auth
         refresh_result.status_code.should eq 200
         refresh_body = JSON.parse(refresh_result.body)
         refresh_body["access_token"].as_s.should_not be_empty
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
+
+    # ---- POST /auth/token — public clients (no client_secret) ---------
+    #
+    # SPAs / native apps (`confidential: false`) can't hold a secret; they
+    # authenticate via PKCE. Doorkeeper let them exchange a code and refresh
+    # without a `client_secret`, and Backoffice relies on exactly this. See
+    # `AuthlyAdapter::Client#authorized?`.
+    describe "POST /auth/token (public client)" do
+      # Public variant of `new_application`: confidential is left false and
+      # no secret is ever presented at the token endpoint.
+      new_public_application = ->(redirect : String, scopes : String) {
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        user = ::PlaceOS::Model::Generator.user(authority)
+        password = "bcrypt-please-#{Random.rand(99999)}"
+        user.password = password
+        user.save!
+        app = ::PlaceOS::Model::DoorkeeperApplication.new
+        app.name = "public-test-#{Random.rand(99999)}"
+        app.redirect_uri = redirect
+        app.scopes = scopes
+        app.owner_id = user.id.as(String)
+        app.confidential = false
+        app.save!
+        {user, app, password}
+      }
+
+      it "exchanges a code and refreshes with no client_secret" do
+        user, app, password = new_public_application.call("https://spa.example/cb", "public")
+        cookie = Spec.signin!(client, user, password)
+
+        authorize_result = client.get(
+          "/auth/authorize?response_type=code" \
+          "&client_id=#{URI.encode_www_form(app.uid.as(String))}" \
+          "&redirect_uri=#{URI.encode_www_form("https://spa.example/cb")}" \
+          "&scope=public",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
+        )
+        authorize_result.status_code.should eq 302
+        location = authorize_result.headers["Location"]
+        code = URI::Params.parse(location.split('?', 2).last)["code"]
+
+        # Token exchange WITHOUT client_secret — this is the drop-in fix.
+        token_result = form_post.call("/auth/token", {
+          "grant_type"   => "authorization_code",
+          "client_id"    => app.uid.as(String),
+          "code"         => code,
+          "redirect_uri" => "https://spa.example/cb",
+        })
+        token_result.status_code.should eq 200
+        token_body = JSON.parse(token_result.body)
+        token_body["access_token"].as_s.should_not be_empty
+        refresh_token = token_body["refresh_token"].as_s
+        refresh_token.should_not be_empty
+
+        # Refresh, again with no client_secret.
+        refresh_result = form_post.call("/auth/token", {
+          "grant_type"    => "refresh_token",
+          "client_id"     => app.uid.as(String),
+          "refresh_token" => refresh_token,
+        })
+        refresh_result.status_code.should eq 200
+        JSON.parse(refresh_result.body)["access_token"].as_s.should_not be_empty
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "denies the client_credentials grant to a public client" do
+        user, app, _password = new_public_application.call("https://spa.example/cb2", "public")
+
+        # Even presenting the app's real secret, a public client must not be
+        # able to mint client-credentials tokens — the grant is confidential
+        # only, so a leaked (public) client_id can't be used as a principal.
+        result = form_post.call("/auth/token", {
+          "grant_type"    => "client_credentials",
+          "client_id"     => app.uid.as(String),
+          "client_secret" => app.secret,
+          "scope"         => "public",
+        })
+        result.status_code.should eq 401
+        JSON.parse(result.body)["error"].as_s.should eq "unauthorized_client"
       ensure
         app.try &.destroy
         user.try &.destroy

@@ -101,6 +101,27 @@ module PlaceOS::Auth
       raise OAuthUnauthorized.new(ex.type.to_s, ex.message)
     end
 
+    # RFC 7636 clients (ts-client / Backoffice, most OAuth SDKs) send the
+    # S256 `code_challenge` as base64url. authly validates it against
+    # Crystal's `Digest::SHA256.base64digest`, which is *standard* base64
+    # (`+`/`/`, padded) — so a real browser handshake never matches and
+    # every PKCE login fails with `unauthorized_client`. Normalize the
+    # url-safe alphabet back to standard base64 and pad to a multiple of 4
+    # so both padded and unpadded base64url challenges validate. Only S256
+    # is transformed; `plain` challenges are the verifier verbatim (whose
+    # RFC charset legitimately includes `-`/`_`) and must not be touched.
+    private def normalize_code_challenge(challenge : String?, method : String?) : String
+      value = challenge || ""
+      return value unless method.try(&.upcase) == "S256"
+      return value if value.empty?
+
+      standard = value.tr("-_", "+/")
+      if (remainder = standard.size % 4) != 0
+        standard += "=" * (4 - remainder)
+      end
+      standard
+    end
+
     # --- POST /auth/token -------------------------------------------------
 
     # `/auth/oauth/token` is the legacy Doorkeeper mount point; kept as an
@@ -110,7 +131,13 @@ module PlaceOS::Auth
     def token(
       grant_type : String,
       client_id : String,
-      client_secret : String,
+      # Public clients (SPAs / native apps registered with
+      # `confidential: false`) cannot hold a secret — they authenticate
+      # via PKCE. Doorkeeper made `client_secret` optional for them, so a
+      # required param here would 422 every Backoffice token exchange
+      # before any OAuth logic ran. The client adapter enforces the secret
+      # only for confidential clients (see `AuthlyAdapter::Client`).
+      client_secret : String? = nil,
       code : String? = nil,
       redirect_uri : String? = nil,
       refresh_token : String? = nil,
@@ -129,7 +156,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          scope: scope,
                        )
                      when "authorization_code"
@@ -138,7 +165,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          code: code,
                          redirect_uri: redirect_uri,
                          verifier: code_verifier || "",
@@ -148,7 +175,7 @@ module PlaceOS::Auth
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
-                         client_secret: client_secret,
+                         client_secret: client_secret || "",
                          refresh_token: refresh_token,
                        )
                      else
@@ -205,7 +232,7 @@ module PlaceOS::Auth
           client_id,
           redirect_uri,
           scope,
-          code_challenge || "",
+          normalize_code_challenge(code_challenge, code_challenge_method),
           code_challenge_method || "",
           user.id.as(String),
         )
@@ -574,7 +601,9 @@ module PlaceOS::Auth
         @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token"]
         @subject_types_supported = ["public"]
         @id_token_signing_alg_values_supported = ["RS256"]
-        @token_endpoint_auth_methods_supported = ["client_secret_post"]
+        # `none` advertises that public clients may authenticate the token
+        # endpoint with PKCE alone (no client_secret) — see the token action.
+        @token_endpoint_auth_methods_supported = ["client_secret_post", "none"]
         @code_challenge_methods_supported = ["S256"]
         @claims_supported = ["sub", "iss", "aud", "exp", "iat", "email", "full_name", "given_name", "family_name", "nickname", "phone_number", "preferred_username"]
       end

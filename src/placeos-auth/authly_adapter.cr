@@ -137,6 +137,48 @@ module Authly
       nil
     end
   end
+
+  # Patch: authly's refresh token (`token_generator.cr#generate_refresh_token`)
+  # carries `sub => client_id` and *no* resource-owner identity, and
+  # `RefreshToken` never overrides `user_id`. So refreshing an access token
+  # mints one with a *random* `sub`, losing the user — and, via our
+  # `ClaimsProvider` (which does `User.find?(sub)`), also dropping the
+  # `u{n,e,p,r}` block and the `aud` claim. This is the exact upstream gap
+  # the `AuthorizationCode#user_id` patch fixes for the code grant; we extend
+  # the same compensation to refresh.
+  #
+  # `@sub` is already the resource-owner id at this point (set from `user_id`
+  # before the refresh token is generated in `AccessToken#initialize`), so we
+  # re-mint the refresh token to embed it. Only user grants pass a real
+  # `user_id`; client_credentials (which has no resource owner) is left as-is.
+  struct AccessToken
+    def initialize(@client_id : String, @scope : String, @id_token : String? = nil, cert_thumbprint : String? = nil, user_id : String? = nil)
+      previous_def
+      if (uid = user_id) && !uid.empty?
+        @refresh_token = Authly.jwt_encode({
+          "jti"     => Random::Secure.hex(32),
+          "sub"     => @client_id,
+          "user_id" => uid,
+          "name"    => "refresh token",
+          "iat"     => Time.utc.to_unix,
+          "iss"     => Authly.config.issuer,
+          "exp"     => Authly.config.refresh_ttl.from_now.to_unix,
+        })
+      end
+    end
+  end
+
+  # Patch: recover the resource-owner id embedded above so the refreshed
+  # access token gets a real `sub` (direct analog of the
+  # `AuthorizationCode#user_id` patch). The identity chains across
+  # refresh-of-refresh because each new refresh token re-embeds it.
+  class RefreshToken
+    def user_id : String?
+      Authly.jwt_decode(refresh_token).first["user_id"]?.try(&.as_s.presence)
+    rescue
+      nil
+    end
+  end
 end
 
 # Configure at require time so both the production binary (`src/app.cr`)

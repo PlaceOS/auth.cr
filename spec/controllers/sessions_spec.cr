@@ -24,8 +24,7 @@ module PlaceOS::Auth
         }
         result = client.post("/auth/signin", headers: headers, body: body)
         result.status_code.should eq 202
-        result.headers["Set-Cookie"]?.should_not be_nil
-        result.headers["Set-Cookie"].not_nil!.should start_with PlaceOS::Auth::SESSION_COOKIE_NAME
+        result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?.should_not be_nil
       ensure
         user.try &.destroy
       end
@@ -103,6 +102,61 @@ module PlaceOS::Auth
         }
         result = client.post("/auth/signin", headers: headers, body: body)
         result.status_code.should eq 401
+      ensure
+        user.try &.destroy
+      end
+    end
+
+    # The nginx-validated `verified` asset-access cookie — nginx recomputes
+    # HMAC-SHA256(SECRET_KEY_BASE, <data>) on every SPA asset request and
+    # bounces the browser to /auth/login when it is missing or wrong, so a
+    # login that doesn't set it produces an infinite redirect loop.
+    describe "asset-access `verified` cookie" do
+      it "is issued on signin, signed with SECRET_KEY_BASE, at path / SameSite=None" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+
+        body = {email: user.email.to_s, password: password}.to_json
+        result = client.post("/auth/signin", headers: HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/json",
+        }, body: body)
+        result.status_code.should eq 202
+
+        verified = result.cookies["verified"]?
+        verified.should_not be_nil
+        verified = verified.not_nil!
+
+        # value = "<16 hex>.<64 hex>"; recompute the HMAC exactly as nginx does
+        verified.value.should match(/\A[0-9a-f]{16}\.[0-9a-f]{64}\z/)
+        data, _, signature = verified.value.partition('.')
+        expected = OpenSSL::HMAC.hexdigest(:sha256, PlaceOS::Auth::SECRET_KEY_BASE, data)
+        signature.should eq expected
+
+        verified.path.should eq "/"
+        verified.secure.should be_true
+        verified.http_only.should be_true
+        verified.samesite.should eq HTTP::Cookie::SameSite::None
+      ensure
+        user.try &.destroy
+      end
+
+      it "is cleared on logout" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+        cookie = Spec.signin!(client, user, password)
+
+        result = client.get("/auth/logout", headers: HTTP::Headers{
+          "Host"   => "localhost",
+          "Cookie" => cookie,
+        })
+
+        verified = result.cookies["verified"]?
+        verified.should_not be_nil
+        verified = verified.not_nil!
+        verified.value.should eq ""
+        verified.expires.not_nil!.should be < Time.utc
+        verified.path.should eq "/"
       ensure
         user.try &.destroy
       end

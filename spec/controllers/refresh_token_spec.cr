@@ -81,7 +81,8 @@ module PlaceOS::Auth
       claims["sub"].as_s.should eq user.id.as(String)
       claims["aud"].as_s.should eq "localhost"
       claims["u"]["e"].as_s.should eq user.email.to_s.downcase
-      claims["u"]["p"].as_i.should eq 3 # support + sys_admin
+      # p = permission bitflags: support (1) + sys_admin (2) => 3
+      claims["u"]["p"].as_i.should eq 3
     ensure
       app.try &.destroy
       user.try &.destroy

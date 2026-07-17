@@ -1,3 +1,5 @@
+require "digest/sha256"
+
 module PlaceOS::Auth
   APP_NAME    = "auth"
   API_VERSION = "v2"
@@ -40,11 +42,26 @@ module PlaceOS::Auth
 
   # Secret used by `ActionController::Session::MessageEncryptor` to
   # encrypt + sign the session cookie. Must be at least 32 bytes for
-  # AES-256. In production this MUST be set; the dev fallback generates
-  # a new key per boot, which deliberately invalidates existing cookies.
-  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]? || begin
-    Log.warn { "COOKIE_SESSION_SECRET not set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
-    Random::Secure.hex(32)
+  # AES-256.
+  #
+  # Resolution order:
+  #   1. `COOKIE_SESSION_SECRET` if explicitly provided.
+  #   2. Otherwise derive a stable key from `PLACE_SERVER_SECRET` — the
+  #      platform always provides it, it is stable across restarts and
+  #      identical across replicas, so sessions survive a redeploy and a
+  #      cookie issued by one instance is accepted by another without any
+  #      new deployment config. It is SHA-256'd (not used raw) so it is
+  #      namespaced away from its settings-encryption use and always the
+  #      right length.
+  #   3. Only if neither is set (a bare dev box) do we fall back to an
+  #      ephemeral per-boot key, which deliberately invalidates cookies.
+  COOKIE_SESSION_SECRET = ENV["COOKIE_SESSION_SECRET"]?.presence || begin
+    if server_secret = ENV["PLACE_SERVER_SECRET"]?.presence
+      Digest::SHA256.hexdigest("auth.cr/cookie-session/#{server_secret}")
+    else
+      Log.warn { "neither COOKIE_SESSION_SECRET nor PLACE_SERVER_SECRET set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
+      Random::Secure.hex(32)
+    end
   end
 
   # OIDC issuer claim. Kept as "POS" so existing services keep validating

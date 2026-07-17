@@ -99,6 +99,17 @@ module PlaceOS::Auth
 
       expect_state, expect_provider, expect_id = consume_stored_state
 
+      # Recover the strategy id from the stored session state when the IdP
+      # dropped the `?id=` query param on the callback redirect (some OAuth
+      # providers don't round-trip query params on `redirect_uri`). The exact
+      # id was stashed in `#initiate`, so use it rather than 401 — more precise
+      # than the legacy Ruby guess (first strat / authority callback URI). A
+      # present-but-mismatched id is left alone, so the state check below still
+      # rejects it as CSRF.
+      if (id.nil? || id.empty?) && (recovered_id = expect_id.presence)
+        id = recovered_id
+      end
+
       # SAML (adfs) uses the HTTP-POST binding: the IdP auto-submits the signed
       # assertion cross-site to the ACS URL, so the browser withholds our
       # SameSite=Lax auth-flow cookie and the CSRF `state` stashed in

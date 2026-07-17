@@ -1,0 +1,11 @@
+# LOCAL-ONLY (untracked): remap published test-DB ports off the host's
+# native postgres:5432 / redis:6379 so the isolated spec stack can start.
+# The `test` service still reaches these over the compose network by
+# hostname, so connectivity is unchanged.
+services:
+  postgres:
+    ports:
+      - "15499:5432"
+  redis:
+    ports:
+      - "16399:6379"

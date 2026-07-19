@@ -38,7 +38,7 @@ module PlaceOS::Auth
       digest = user.password_digest
       if digest.nil? || digest.empty?
         Log.debug { {action: "signin", reason: "user has no password set (OAuth-only account)", user_id: user.id} }
-        raise Error::Unauthorized.new
+        return login_failure(body.continue)
       end
 
       # NB: We don't go through `user.password` because the active-model
@@ -50,7 +50,7 @@ module PlaceOS::Auth
       # the Crystal stdlib, so we call `verify` explicitly.
       unless Crypto::Bcrypt::Password.new(digest).verify(body.password)
         Log.debug { {action: "signin", reason: "password mismatch", user_id: user.id} }
-        raise Error::Unauthorized.new
+        return login_failure(body.continue)
       end
 
       remove_session
@@ -186,6 +186,19 @@ module PlaceOS::Auth
       return uri if idx.nil?
       raw = uri[(idx + "continue=".size)..]
       URI.decode_www_form(raw)
+    end
+
+    # Mirrors Ruby `SessionsController#login_failure`: a browser login *form*
+    # (identified by a `continue` param) reloads the referring page so the
+    # user can retry, instead of getting a raw 401 JSON body. API/XHR callers
+    # (no `continue`) keep the 401 contract exactly as before.
+    private def login_failure(continue : String?) : Nil
+      if continue.presence
+        referer = request.headers["Referer"]? || "/"
+        redirect_to referer.gsub(' ', "%20"), :see_other
+      else
+        raise Error::Unauthorized.new
+      end
     end
 
     # Looks for `api-key` (or `x-api-key`) in `continue`'s query string

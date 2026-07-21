@@ -25,7 +25,11 @@ module PlaceOS::Auth
     settings.key = SESSION_COOKIE_NAME
     settings.secret = COOKIE_SESSION_SECRET
     settings.path = SESSION_COOKIE_PATH
-    settings.secure = Auth.production?
+    # SameSite=None (set in session_samesite_patch.cr for embedded/cross-site
+    # login parity with the legacy Ruby service) is invalid without Secure, and
+    # auth always runs behind HTTPS — mirror the `verified` cookie's
+    # unconditional Secure rather than gating on production.
+    settings.secure = true
     settings.encrypted = true
   end
 end

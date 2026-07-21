@@ -205,6 +205,14 @@ module PlaceOS::Auth
         result.status_code.should eq 302
         result.headers["Location"].should eq "/"
 
+        # The deletion cookie must carry the same cross-site attributes or the
+        # browser won't match + clear it (same reasoning as the `verified` clear).
+        cleared = result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?
+        cleared.should_not be_nil
+        cleared = cleared.not_nil!
+        cleared.samesite.should eq HTTP::Cookie::SameSite::None
+        cleared.secure.should be_true
+
         reloaded = ::PlaceOS::Model::User.find!(user.id.as(String))
         reloaded.logged_out_at.should_not be_nil
         reloaded.logged_out_at.not_nil!.should be >= before

@@ -111,6 +111,62 @@ module PlaceOS::Auth
       end
     end
 
+    # The admin write path is gated only by the ambient session cookie, which
+    # is now SameSite=None — so a cross-site form POST could ride a signed-in
+    # sys_admin's session to mint an OAuth client. The guard requires the
+    # mutation to be same-origin; non-browser clients (no Sec-Fetch-Site /
+    # Origin, as every other spec here) are unaffected.
+    describe "CSRF guard on state-changing actions" do
+      it "rejects a cross-site POST (Sec-Fetch-Site) despite a valid admin session" do
+        user, headers = admin_session.call
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Sec-Fetch-Site"] = "cross-site"
+        body = URI::Params.build do |f|
+          f.add "doorkeeper_application[name]", "csrf-app"
+          f.add "doorkeeper_application[redirect_uri]", "https://evil.example/cb"
+          f.add "doorkeeper_application[scopes]", "public"
+        end
+        client.post("/auth/oauth/applications", headers: headers, body: body).status_code.should eq 403
+      ensure
+        user.try &.destroy
+      end
+
+      it "rejects a cross-origin POST (Origin host mismatch) despite a valid admin session" do
+        user, headers = admin_session.call
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Origin"] = "https://evil.example"
+        body = URI::Params.build { |f| f.add "doorkeeper_application[name]", "csrf-app2" }
+        client.post("/auth/oauth/applications", headers: headers, body: body).status_code.should eq 403
+      ensure
+        user.try &.destroy
+      end
+
+      it "still allows a same-origin POST (Sec-Fetch-Site: same-origin + matching Origin)" do
+        user, headers = admin_session.call
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        headers["Sec-Fetch-Site"] = "same-origin"
+        headers["Origin"] = "http://localhost"
+        redirect = "https://ok.example/cb/#{UUID.random}"
+        body = URI::Params.build do |f|
+          f.add "doorkeeper_application[name]", "same-origin-app"
+          f.add "doorkeeper_application[redirect_uri]", redirect
+          f.add "doorkeeper_application[scopes]", "public"
+        end
+        client.post("/auth/oauth/applications", headers: headers, body: body).status_code.should eq 200
+      ensure
+        user.try &.destroy
+      end
+
+      it "covers the DELETE/PATCH verbs too, not just create" do
+        user, headers = admin_session.call
+        app = make_app.call(user)
+        headers["Sec-Fetch-Site"] = "cross-site"
+        client.delete("/auth/oauth/applications/#{app.id}", headers: headers).status_code.should eq 403
+      ensure
+        user.try &.destroy
+      end
+    end
+
     describe "GET /auth/oauth/applications/:id" do
       it "returns the full record for an admin" do
         user, headers = admin_session.call

@@ -124,6 +124,32 @@ module PlaceOS::Auth
       raise Error::NotFound.new unless user && user.sys_admin
     end
 
+    # CSRF defence for the state-changing admin actions. These are gated only
+    # by the ambient session cookie (`require_admin`); because `_coauth_session`
+    # is `SameSite=None` (needed for embedded login) the browser now attaches it
+    # to cross-site requests, so a cross-site form POST could otherwise ride a
+    # signed-in sys_admin's session to mint an OAuth client — `create` is a
+    # "simple request" that skips the CORS preflight that already guards the
+    # PATCH/DELETE verbs. The legitimate admin form is served same-origin by
+    # this controller (`/new`, `/:id/edit`), so we require the mutation to be
+    # same-origin. Non-browser API clients send neither `Sec-Fetch-Site` nor
+    # `Origin`, so they are unaffected — they cannot be a browser CSRF vector.
+    @[AC::Route::Filter(:before_action, only: [:create, :update, :destroy])]
+    private def reject_cross_site_writes : Nil
+      if (site = request.headers["Sec-Fetch-Site"]?) && !site.in?("same-origin", "none")
+        raise Error::Forbidden.new("cross-site request rejected")
+      end
+      if (origin = request.headers["Origin"]?) && !same_origin_request?(origin)
+        raise Error::Forbidden.new("cross-origin request rejected")
+      end
+    end
+
+    private def same_origin_request?(origin : String) : Bool
+      URI.parse(origin).host == request.hostname
+    rescue
+      false
+    end
+
     private def find_app(id : String) : ::PlaceOS::Model::DoorkeeperApplication
       key = id.to_i64? || raise Error::NotFound.new
       ::PlaceOS::Model::DoorkeeperApplication.find!(key)

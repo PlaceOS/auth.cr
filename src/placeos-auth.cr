@@ -2,6 +2,7 @@ require "action-controller/logger"
 require "secrets-env"
 
 require "./constants"
+require "./placeos-auth/session_samesite_patch"
 require "./placeos-auth/error"
 require "./placeos-auth/authly_adapter"
 require "./placeos-auth/external_providers"

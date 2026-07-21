@@ -110,16 +110,14 @@ module PlaceOS::Auth
         id = recovered_id
       end
 
-      # SAML (adfs) uses the HTTP-POST binding: the IdP auto-submits the signed
-      # assertion cross-site to the ACS URL, so the browser withholds our
-      # SameSite=Lax auth-flow cookie and the CSRF `state` stashed in
-      # `#initiate` is unavailable here — and the IdP echoes the CSRF value
-      # back as `RelayState`, not `state`, anyway. The legacy Ruby service
-      # (omniauth-saml) never did session-state CSRF for SAML; the callback was
-      # authenticated purely by the signed assertion (idp_cert /
-      # idp_cert_fingerprint, want_assertions_signed). Mirror that: skip the
+      # SAML (adfs) uses the HTTP-POST binding and echoes our CSRF value back as
+      # `RelayState`, not `state`, so the session-state check below can never
+      # match a SAML callback (the `state` param is absent). The legacy Ruby
+      # service (omniauth-saml) likewise never did session-state CSRF for SAML;
+      # the callback was authenticated purely by the signed assertion (idp_cert
+      # / idp_cert_fingerprint, want_assertions_signed). Mirror that: skip the
       # session-state check for SAML and let `engine.user` validate the
-      # signature. The OAuth2 path (Lax cookie sent) keeps full validation.
+      # signature. The OAuth2 path keeps full `state` validation.
       unless saml_provider?(provider)
         if expect_state.nil? || state != expect_state || expect_provider != provider || expect_id != (id || "")
           Log.warn { {action: "provider_callbacks.callback", message: "state mismatch", provider: provider} }
@@ -236,8 +234,8 @@ module PlaceOS::Auth
     end
 
     # SAML callbacks arrive on the `adfs`/`saml` provider names registered by
-    # `ExternalProviders`. They cannot participate in session-state CSRF (the
-    # cross-site HTTP-POST binding drops the SameSite=Lax cookie) and are
+    # `ExternalProviders`. They cannot participate in session-state CSRF — the
+    # IdP echoes the CSRF value as `RelayState`, not `state` — and are
     # authenticated by the signed assertion instead.
     private def saml_provider?(provider : String) : Bool
       provider == ExternalProviders::SAML_PROVIDER ||

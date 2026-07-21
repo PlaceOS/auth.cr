@@ -48,6 +48,32 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "issues _coauth_session as SameSite=None; Secure (embedded/cross-site login parity)" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+
+        body = {email: user.email.to_s, password: password}.to_json
+        result = client.post("/auth/signin", headers: HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/json",
+        }, body: body)
+        result.status_code.should eq 202
+
+        # A SameSite=Lax / non-Secure session cookie is silently dropped by the
+        # browser in an embedded (third-party) context, so local login fails
+        # there while the SameSite=None `verified` cookie survives. Match the
+        # legacy Ruby `:user` cookie (same_site: :none) so embedded login works.
+        session = result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?
+        session.should_not be_nil
+        session = session.not_nil!
+        session.samesite.should eq HTTP::Cookie::SameSite::None
+        session.secure.should be_true
+        session.http_only.should be_true
+        session.path.should eq PlaceOS::Auth::SESSION_COOKIE_PATH
+      ensure
+        user.try &.destroy
+      end
+
       it "redirects to a safe `continue` target when supplied" do
         password = "ok-password-1234"
         user = create_user.call(password)
@@ -207,6 +233,14 @@ module PlaceOS::Auth
         })
         result.status_code.should eq 302
         result.headers["Location"].should eq "/"
+
+        # The deletion cookie must carry the same cross-site attributes or the
+        # browser won't match + clear it (same reasoning as the `verified` clear).
+        cleared = result.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME]?
+        cleared.should_not be_nil
+        cleared = cleared.not_nil!
+        cleared.samesite.should eq HTTP::Cookie::SameSite::None
+        cleared.secure.should be_true
 
         reloaded = ::PlaceOS::Model::User.find!(user.id.as(String))
         reloaded.logged_out_at.should_not be_nil

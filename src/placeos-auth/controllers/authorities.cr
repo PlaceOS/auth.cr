@@ -48,14 +48,18 @@ module PlaceOS::Auth
 
     @[AC::Route::GET("/authority")]
     def current(
-      @[AC::Param::Info(description: "respond 200 OK even when no authority matches the host; used as a liveness probe")]
+      @[AC::Param::Info(description: "respond 200 OK without querying the database; used as a liveness probe")]
       health : String? = nil,
     ) : AuthorityResponse?
+      # Liveness short-circuit BEFORE any DB access. `current_authority` runs
+      # `Authority.find_by_domain`, which *raises* (not returns nil) when
+      # Postgres is unreachable — a transient blip would otherwise 500 the
+      # probe and risk a pod-restart storm. A `?health` caller only wants a
+      # process-is-up signal, so answer 200 without touching the DB.
+      return nil if health
+
       authority = current_authority
-      unless authority
-        return nil if health
-        raise Error::NotFound.new("authority not found for host #{request.hostname}")
-      end
+      raise Error::NotFound.new("authority not found for host #{request.hostname}") if authority.nil?
 
       session = signed_in?
       valid = token_valid?

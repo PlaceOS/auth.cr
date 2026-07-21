@@ -27,6 +27,15 @@ module PlaceOS::Auth
         result.body.should be_empty
       end
 
+      it "answers ?health with an empty 200 even for a matching host (no DB lookup)" do
+        # The liveness short-circuit runs before any authority resolution, so a
+        # matching host still gets the empty process-is-up 200 (not the JSON) —
+        # proving a Postgres outage can't 500 the probe.
+        result = client.get("/auth/authority?health=true", headers: HTTP::Headers{"Host" => "localhost"})
+        result.status_code.should eq 200
+        result.body.should be_empty
+      end
+
       it "marks token_valid=true when a Bearer JWT is supplied" do
         _, headers = Spec::Authentication.authentication
         headers["Host"] = "localhost"

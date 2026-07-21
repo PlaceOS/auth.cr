@@ -131,6 +131,35 @@ module PlaceOS::Auth
       ensure
         user.try &.destroy
       end
+
+      it "reloads the login page (303) on wrong password when a continue is present (browser form)" do
+        password = "ok-password-1234"
+        user = create_user.call(password)
+        referer = "https://localhost/auth/login?continue=/backoffice/"
+
+        body = {email: user.email.to_s, password: "nope", continue: "/backoffice/"}.to_json
+        result = client.post("/auth/signin", headers: HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/json",
+          "Referer"      => referer,
+        }, body: body)
+
+        # browser form → reload the referring login page, not a raw 401 JSON
+        result.status_code.should eq 303
+        result.headers["Location"].should eq referer
+      ensure
+        user.try &.destroy
+      end
+
+      it "still 401s on unknown email even with a continue (Ruby parity)" do
+        body = {email: "missing@localhost", password: "anything", continue: "/backoffice/"}.to_json
+        result = client.post("/auth/signin", headers: HTTP::Headers{
+          "Host"         => "localhost",
+          "Content-Type" => "application/json",
+          "Referer"      => "https://localhost/auth/login",
+        }, body: body)
+        result.status_code.should eq 401
+      end
     end
 
     # The nginx-validated `verified` asset-access cookie — nginx recomputes

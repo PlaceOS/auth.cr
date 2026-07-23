@@ -159,10 +159,18 @@ module Authly
           "jti"     => Random::Secure.hex(32),
           "sub"     => @client_id,
           "user_id" => uid,
-          "name"    => "refresh token",
-          "iat"     => Time.utc.to_unix,
-          "iss"     => Authly.config.issuer,
-          "exp"     => Authly.config.refresh_ttl.from_now.to_unix,
+          # Embed the granted scope so it survives refresh. authly's refresh
+          # grant otherwise derives scope only from the request (absent on a
+          # standard refresh) or the auth code (absent on a refresh), leaving
+          # the refreshed token with an empty scope — which fails rest-api's
+          # `can_read` (needs `public`) and 403s every API call (PPT-2536).
+          # Recovered in `Grant#scope` below. Mirrors Ruby Doorkeeper, which
+          # reapplies the original grant's scope on refresh.
+          "scope" => @scope,
+          "name"  => "refresh token",
+          "iat"   => Time.utc.to_unix,
+          "iss"   => Authly.config.issuer,
+          "exp"   => Authly.config.refresh_ttl.from_now.to_unix,
         })
       end
     end
@@ -177,6 +185,37 @@ module Authly
       Authly.jwt_decode(refresh_token).first["user_id"]?.try(&.as_s.presence)
     rescue
       nil
+    end
+  end
+
+  # Patch: carry the granted scope across a refresh. Upstream `Grant#scope`
+  # returns the request scope (absent on a standard refresh), else the auth
+  # code's scope (absent on a refresh), else "". So a refreshed access token
+  # lost its scope entirely — emitting `scope: [] ` — and every downstream
+  # API call 403'd on rest-api's `can_read` (which requires the `public`
+  # scope). We recover the scope embedded in the refresh token by the
+  # `AccessToken#initialize` patch above. An explicit (narrowing) request
+  # scope still wins, per RFC 6749 §6.
+  class Grant
+    private def scope : String
+      if (scp = @scope) && !scp.empty?
+        return scp
+      end
+      unless @code.empty?
+        return auth_code["scope"].as_s
+      end
+      # Refresh grant: no request scope, no auth code. Recover the scope the
+      # `AccessToken#initialize` patch embedded in the refresh token. Guard
+      # only this decode so the code-grant path keeps its original semantics.
+      unless @refresh_token.empty?
+        recovered = begin
+          Authly.jwt_decode(@refresh_token).first["scope"]?.try(&.as_s?.presence)
+        rescue
+          nil
+        end
+        return recovered if recovered
+      end
+      ""
     end
   end
 end

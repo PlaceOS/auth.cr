@@ -48,7 +48,7 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "issues _coauth_session as SameSite=None; Secure (embedded/cross-site login parity)" do
+      it "issues the session cookie as SameSite=None; Secure (embedded/cross-site login parity)" do
         password = "ok-password-1234"
         user = create_user.call(password)
 

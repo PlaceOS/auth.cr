@@ -15,7 +15,7 @@ require "action-controller/session"
 # In a third-party context the browser silently DROPS a `SameSite=Lax` cookie
 # while keeping a `SameSite=None; Secure` one. So after a successful sign-in
 # the nginx-gate `verified` cookie (already SameSite=None) survives but
-# `_coauth_session` vanishes, and `GET /auth/authority` reports
+# the session cookie vanishes, and `GET /auth/authority` reports
 # `session:false` — the SPA then bounces to SSO. First-party login is
 # unaffected (Lax is satisfied), which is why it only shows up when embedded.
 #

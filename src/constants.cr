@@ -46,11 +46,21 @@ module PlaceOS::Auth
   REDIS_URL            = ENV["REDIS_URL"]?
   LOGIN_EVENTS_CHANNEL = ENV["LOGIN_EVENTS_CHANNEL"]? || "placeos/auth/login"
 
-  # Session cookie name and path. The wire format is not compatible with
-  # the legacy Rails `_coauth_session`; we keep the name for nginx route
-  # familiarity but anyone holding an old cookie will be re-prompted to
-  # sign in at cutover, which is fine.
-  SESSION_COOKIE_NAME = "_coauth_session"
+  # Session cookie name and path.
+  #
+  # This MUST NOT reuse the legacy Rails name `_coauth_session`. The wire
+  # format is incompatible (Rails MessageEncryptor vs action-controller), so a
+  # Rails-issued `_coauth_session` is `InvalidSignature` to us. Sharing the
+  # name looked harmless ("old cookie → re-prompt") but is not: (1) the failing
+  # parse strips the in-session OAuth `state`, so the very re-prompt (SSO)
+  # 401s with "oauth state mismatch"; and (2) Rails set the cookie at the
+  # default `Path=/` while ours is `Path=/auth`, so the two SAME-NAMED cookies
+  # coexist — the browser sends both, we read the stale Rails one, and we can
+  # never overwrite a `Path=/` cookie by writing `Path=/auth`. The result was a
+  # PERMANENT lockout for anyone with a Ruby-era session (PPT-2536, reported on
+  # dev). Using a distinct name sidesteps the collision in both cutover
+  # directions; the orphaned `_coauth_session` is simply ignored.
+  SESSION_COOKIE_NAME = "_placeos_auth_session"
   SESSION_COOKIE_PATH = "/auth"
 
   # Secret used by `ActionController::Session::MessageEncryptor` to

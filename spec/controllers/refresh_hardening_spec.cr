@@ -94,9 +94,12 @@ module PlaceOS::Auth
 
     row_revoked = ->(plain : String) {
       ::PgORM::Database.connection do |db|
+        # `args:` Array, not a varargs splat — see the note in
+        # legacy_refresh.cr: a row-returning query with splatted args ICEs the
+        # Crystal compiler ("Tuple#each ... should have been expanded").
         db.query_one?(
           "SELECT revoked_at IS NOT NULL FROM oauth_access_tokens WHERE refresh_token = $1",
-          AuthlyAdapter::LegacyRefresh.digest(plain), as: Bool)
+          args: [AuthlyAdapter::LegacyRefresh.digest(plain)] of ::DB::Any, as: Bool)
       end
     }
 

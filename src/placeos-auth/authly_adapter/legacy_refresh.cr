@@ -39,16 +39,33 @@ module PlaceOS::Auth::AuthlyAdapter
     def self.lookup(refresh_token : String) : Token?
       return nil if refresh_token.empty? || refresh_token.includes?('.')
 
-      row = ::PgORM::Database.connection do |db|
-        db.query_one?(<<-SQL, digest(refresh_token), as: {Int64, Int64, String?, String?})
+      # NB: bind the parameter via the `args:` Array overload rather than the
+      # varargs splat. A row-returning `db.query*` with splatted args crashes
+      # the Crystal compiler — "BUG: ... Tuple#each MacroFor ... should have
+      # been expanded" (tuple.cr:367). How far it reaches is toolchain
+      # dependent: on CI's compiler only the `--release`/`--static` image build
+      # failed while `crystal spec` passed, so the first PR #10 CI run went
+      # green on tests and red on Build; on Crystal 1.16.3 the spec build ICEs
+      # too. `db.exec` with splatted args is unaffected.
+      found = nil
+      ::PgORM::Database.connection do |db|
+        db.query(<<-SQL, args: [digest(refresh_token)] of ::DB::Any) do |rs|
           SELECT id, application_id, resource_owner_id, scopes
             FROM oauth_access_tokens
            WHERE refresh_token = $1 AND revoked_at IS NULL
            LIMIT 1
           SQL
+          rs.each do
+            found = Token.new(
+              rs.read(Int64),
+              rs.read(Int64),
+              rs.read(String?),
+              rs.read(String?),
+            )
+          end
+        end
       end
-      return nil unless row
-      Token.new(row[0], row[1], row[2], row[3])
+      found
     rescue e
       # A missing table (deployment that never ran Ruby auth) or DB hiccup
       # must degrade to "not a legacy token", not break the token endpoint.

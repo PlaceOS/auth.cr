@@ -60,48 +60,19 @@ module PlaceOS::Auth
       })
     }
 
-    # An auth.cr refresh token in the PRE-scope-fix wire format: embeds the
-    # user but NOT the granted scope.
+    # Credential shapes auth.cr did not mint live in the shared fixture
+    # factory, so the cutover/session specs build the same rows this one does.
+    fixtures = Spec::LegacyFixtures
+
     prefix_refresh_token = ->(app : ::PlaceOS::Model::DoorkeeperApplication, user_id : String) {
-      ::Authly.jwt_encode({
-        "jti"     => Random::Secure.hex(32),
-        "sub"     => app.uid.as(String),
-        "user_id" => user_id,
-        "name"    => "refresh token",
-        "iat"     => Time.utc.to_unix,
-        "iss"     => ::Authly.config.issuer,
-        "exp"     => 30.days.from_now.to_unix,
-      })
+      fixtures.pre_scope_fix_refresh_token(app.uid.as(String), user_id)
     }
 
-    # Seeds a Doorkeeper (Ruby-era) access-token row. Returns the PLAIN
-    # refresh token a browser would present; the row stores its SHA256 hex
-    # digest, per the Ruby `hash_token_secrets` config.
     seed_doorkeeper_row = ->(app_id : Int64, owner : String?, scopes : String?, revoked : Bool) {
-      plain = Random::Secure.hex(32)
-      ::PgORM::Database.connection do |db|
-        db.exec(<<-SQL, AuthlyAdapter::LegacyRefresh.digest(plain), Digest::SHA256.hexdigest(Random::Secure.hex(32)), app_id, owner, scopes, revoked)
-          INSERT INTO oauth_access_tokens
-            (id, refresh_token, token, application_id, resource_owner_id, scopes, revoked_at, created_at, previous_refresh_token)
-          VALUES
-            ((SELECT COALESCE(MAX(id), 0) + 1 FROM oauth_access_tokens),
-             $1, $2, $3, $4, $5,
-             CASE WHEN $6 THEN now() ELSE NULL END, now(), '')
-          SQL
-      end
-      plain
+      fixtures.doorkeeper_row(app_id, owner, scopes, revoked)
     }
 
-    row_revoked = ->(plain : String) {
-      ::PgORM::Database.connection do |db|
-        # `args:` Array, not a varargs splat — see the note in
-        # legacy_refresh.cr: a row-returning query with splatted args ICEs the
-        # Crystal compiler ("Tuple#each ... should have been expanded").
-        db.query_one?(
-          "SELECT revoked_at IS NOT NULL FROM oauth_access_tokens WHERE refresh_token = $1",
-          args: [AuthlyAdapter::LegacyRefresh.digest(plain)] of ::DB::Any, as: Bool)
-      end
-    }
+    row_revoked = ->(plain : String) { fixtures.doorkeeper_row_revoked?(plain) }
 
     # ---- Class A: pre-scope-fix auth.cr refresh tokens ------------------
 
@@ -251,6 +222,89 @@ module PlaceOS::Auth
       claims = decode.call(JSON.parse(result.body)["access_token"].as_s)
       scopes_of.call(claims).should eq ["public"]
       claims["sub"].as_s.should eq user.id.as(String)
+    ensure
+      app.try &.destroy
+      user.try &.destroy
+    end
+
+    # ---- the literal ts-client wire shape --------------------------------
+    #
+    # The specs above post a `client_secret` (empty for public clients). Real
+    # SPAs never send that key at all, and never send `scope` — see
+    # tasks/PPT-2536/research/client-auth-contract.md §1. Scope preservation is
+    # therefore 100% the server's job. These drive the exact request ts-client
+    # builds, against the `/auth/oauth/*` alias it actually calls.
+    spa_refresh = ->(app : ::PlaceOS::Model::DoorkeeperApplication, refresh_token : String) {
+      client.post("/auth/oauth/token", headers: HTTP::Headers{
+        "Host" => "localhost", "Content-Type" => "application/x-www-form-urlencoded",
+      }, body: URI::Params.build { |fp|
+        fp.add("grant_type", "refresh_token")
+        fp.add("client_id", app.uid.as(String))
+        fp.add("redirect_uri", app.redirect_uri.as(String))
+        fp.add("refresh_token", refresh_token)
+        # deliberately no client_secret, no scope
+      })
+    }
+
+    it "refreshes from the literal ts-client request (no secret, no scope, oauth alias)" do
+      user = make_user.call(false, false)
+      app = make_app.call(false)
+      current = Spec::LegacyFixtures.current_refresh_token(app.uid.as(String), user.id.as(String))
+
+      result = spa_refresh.call(app, current)
+      result.status_code.should eq 200
+      claims = decode.call(JSON.parse(result.body)["access_token"].as_s)
+      scopes_of.call(claims).should eq ["public"]
+      claims["sub"].as_s.should eq user.id.as(String)
+    ensure
+      app.try &.destroy
+      user.try &.destroy
+    end
+
+    it "keeps the healed scope across a long refresh chain, not just one hop" do
+      # A kiosk/signage client (22 of the 66 dev apps are skip_authorization)
+      # refreshes unattended for weeks. The heal has to survive every hop: the
+      # 2026-07-25 revert happened because each refresh re-embedded the empty
+      # scope, so the chain degraded instead of repairing.
+      user = make_user.call(false, false)
+      app = make_app.call(false)
+      token = prefix_refresh_token.call(app, user.id.as(String))
+
+      5.times do
+        result = spa_refresh.call(app, token)
+        result.status_code.should eq 200
+        body = JSON.parse(result.body)
+        scopes_of.call(decode.call(body["access_token"].as_s)).should eq ["public"]
+        decode.call(body["access_token"].as_s)["sub"].as_s.should eq user.id.as(String)
+        token = body["refresh_token"].as_s
+      end
+    ensure
+      app.try &.destroy
+      user.try &.destroy
+    end
+
+    it "survives a double-submitted refresh token (ts-client boot race)" do
+      # ts-client memoises its authorise promise, but loadAuthority clears the
+      # promise before authorise resolves, so token()/HTTP/WS can each kick off
+      # an exchange — two near-simultaneous redemptions of the SAME refresh
+      # token on boot. Doorkeeper tolerated this via previous_refresh_token.
+      # Strict reuse-detection here would log every SPA out on startup, so the
+      # chain must not be destroyed by the second submit.
+      user = make_user.call(false, false)
+      app = make_app.call(false)
+      current = Spec::LegacyFixtures.current_refresh_token(app.uid.as(String), user.id.as(String))
+
+      first = spa_refresh.call(app, current)
+      first.status_code.should eq 200
+      rotated = JSON.parse(first.body)["refresh_token"].as_s
+
+      # the duplicate in-flight submit
+      spa_refresh.call(app, current)
+
+      # whatever the duplicate returned, the live chain must still work
+      followup = spa_refresh.call(app, rotated)
+      followup.status_code.should eq 200
+      scopes_of.call(decode.call(JSON.parse(followup.body)["access_token"].as_s)).should eq ["public"]
     ensure
       app.try &.destroy
       user.try &.destroy

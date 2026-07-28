@@ -4,6 +4,7 @@ require "openssl"
 
 require "./authly_adapter/client"
 require "./authly_adapter/claims_provider"
+require "./authly_adapter/legacy_refresh"
 require "./authly_adapter/owner"
 require "./authly_adapter/token_store"
 
@@ -180,11 +181,33 @@ module Authly
   # access token gets a real `sub` (direct analog of the
   # `AuthorizationCode#user_id` patch). The identity chains across
   # refresh-of-refresh because each new refresh token re-embeds it.
+  #
+  # Falls back to the legacy Doorkeeper bridge for refresh tokens issued by
+  # the Ruby service (opaque strings, not JWTs) so a client mid-session at
+  # cutover keeps its user identity.
   class RefreshToken
     def user_id : String?
       Authly.jwt_decode(refresh_token).first["user_id"]?.try(&.as_s.presence)
     rescue
-      nil
+      PlaceOS::Auth::AuthlyAdapter::LegacyRefresh
+        .lookup(refresh_token)
+        .try(&.resource_owner_id)
+        .try(&.presence)
+    end
+
+    # Upstream `validate_code!` only accepts refresh tokens we minted
+    # (`Authly.jwt_decode` must succeed), which rejects every token issued by
+    # the legacy Ruby service — forcing an interactive re-login at cutover.
+    # Accept a Doorkeeper token when an unrevoked row exists AND the redeeming
+    # client owns it (Doorkeeper validated the same pairing).
+    private def validate_code!
+      Authly.jwt_decode(refresh_token)
+    rescue e
+      legacy = PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.lookup(refresh_token)
+      raise Error.invalid_grant if legacy.nil?
+      unless PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.client_matches?(legacy, client_id)
+        raise Error.invalid_grant
+      end
     end
   end
 
@@ -214,8 +237,53 @@ module Authly
           nil
         end
         return recovered if recovered
+
+        # Legacy Doorkeeper refresh token: scope lives on the DB row.
+        if legacy = PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.lookup(@refresh_token)
+          if scp = legacy.scopes.try(&.presence)
+            return scp
+          end
+        end
+
+        # Self-heal for refresh tokens that carry a user but no recoverable
+        # scope — i.e. auth.cr tokens minted BEFORE the scope-embedding fix
+        # (they embed `user_id` only) and scope-less Doorkeeper rows. Without
+        # this the refreshed access token gets `scope: []`, every API call
+        # 403s on rest-api's `can_read`, and — because each refresh re-embeds
+        # the empty scope — the client is stuck until a full re-login (the
+        # 2026-07-25 dev revert). Ruby parity: Doorkeeper `default_scopes` is
+        # `:public`, and refresh reapplied the original grant's scopes, which
+        # for every PlaceOS client is `public`. The re-minted refresh token
+        # then embeds the healed scope, permanently repairing the chain.
+        # Client-only grants (no resource owner) keep "" — no privilege is
+        # invented for machine tokens.
+        if @grant_strategy.user_id.try(&.presence)
+          return "public"
+        end
       end
       ""
+    end
+
+    # Upstream revokes the old refresh token via the JWT token manager, which
+    # `Authly.jwt_decode`s it — raising on a legacy Doorkeeper (opaque) token
+    # AFTER we successfully redeemed it. Revoke legacy tokens on their
+    # Doorkeeper row instead (same rotation semantics).
+    private def revoke_old_refresh_token(token : String)
+      return unless @grant_strategy.is_a?(RefreshToken)
+      if legacy = PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.lookup(@refresh_token)
+        PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.revoke!(legacy)
+      else
+        @token_manager.revoke(@refresh_token)
+      end
+    end
+
+    # Upstream unconditionally reads `auth_code["user_id"]` when the scope
+    # includes `openid` — but a refresh grant has no auth code, so a legacy
+    # Doorkeeper row whose scopes include `openid` would 500 the token
+    # endpoint. An id_token is only derivable from a fresh authorization.
+    private def generate_id_token
+      return if @code.empty?
+      previous_def
     end
   end
 end

@@ -267,5 +267,109 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
     end
+
+    # ---- info_mappings comma-fallback (matrix ID-08) -----------------
+    #
+    # The legacy Ruby `generic_oauth` strategy treated each info_mappings value
+    # as a COMMA-SEPARATED FALLBACK LIST, using the first key present in the
+    # provider's profile — notably how Azure/Entra surfaces the email as
+    # `userPrincipalName` rather than `email`. multi_auth does a single literal
+    # lookup, so a comma-list resolves to nil and the email arrives EMPTY.
+    #
+    # When that fallback was lost, real logins produced users with no email,
+    # which then duplicated on the next sign-in. `multi_auth_patch.cr` restores
+    # it; these pin both sides of the fallback so it cannot silently regress.
+
+    describe "info_mappings comma-fallback", tags: "idp-mapping" do
+      azure_strat = ->(site : String) {
+        strat = create_strat.call(site, "openid email")
+        strat.info_mappings = {
+          "uid"   => "id",
+          "email" => "email,mail,userPrincipalName",
+          "name"  => "displayName,name",
+        }
+        strat.save!
+        strat
+      }
+
+      callback = ->(strat_id : String, data : NamedTuple(cookie: String, state: String)) {
+        client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat_id)}&code=test-code&state=#{data[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => data[:cookie]},
+        )
+      }
+
+      user_for = ->(uid : String) {
+        lookup = ::PlaceOS::Model::UserAuthLookup.where(uid: uid, provider: "oauth2").first?
+        lookup.nil? ? nil : ::PlaceOS::Model::User.find!(lookup.user_id.as(String))
+      }
+
+      it "falls back to a later key when earlier ones are absent (Azure userPrincipalName)" do
+        strat = azure_strat.call("https://idp.example.test")
+        uid = "azure-uid-#{Random.rand(99999)}"
+        upn = "upn-#{Random.rand(99999)}@localhost"
+
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        # NB: neither `email` nor `mail` is present — only the third candidate.
+        stub_userinfo.call("https://idp.example.test", {
+          "id"                => uid,
+          "userPrincipalName" => upn,
+          "displayName"       => "Azure Person",
+        })
+
+        callback.call(strat.id.as(String), kickoff.call(strat.id.as(String))).status_code.should eq 303
+
+        created = user_for.call(uid)
+        created.should_not be_nil
+        # Without the patch this is "" — and the account duplicates next login.
+        created.not_nil!.email.to_s.should eq upn
+        created.not_nil!.name.should eq "Azure Person"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "prefers the FIRST present key over later fallbacks" do
+        strat = azure_strat.call("https://idp.example.test")
+        uid = "azure-uid-#{Random.rand(99999)}"
+        primary = "primary-#{Random.rand(99999)}@localhost"
+
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        stub_userinfo.call("https://idp.example.test", {
+          "id"                => uid,
+          "email"             => primary,
+          "mail"              => "wrong-#{Random.rand(99999)}@localhost",
+          "userPrincipalName" => "also-wrong-#{Random.rand(99999)}@localhost",
+          "displayName"       => "Primary Person",
+        })
+
+        callback.call(strat.id.as(String), kickoff.call(strat.id.as(String)))
+
+        user_for.call(uid).not_nil!.email.to_s.should eq primary
+      ensure
+        strat.try &.destroy
+      end
+
+      it "skips blank candidates rather than mapping an empty value" do
+        strat = azure_strat.call("https://idp.example.test")
+        uid = "azure-uid-#{Random.rand(99999)}"
+        upn = "upn-#{Random.rand(99999)}@localhost"
+
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        # `email` is present but EMPTY — the fallback must continue past it,
+        # not stop and map "".
+        stub_userinfo.call("https://idp.example.test", {
+          "id"                => uid,
+          "email"             => "",
+          "userPrincipalName" => upn,
+          "displayName"       => "Blank First Person",
+        })
+
+        callback.call(strat.id.as(String), kickoff.call(strat.id.as(String)))
+
+        user_for.call(uid).not_nil!.email.to_s.should eq upn
+      ensure
+        strat.try &.destroy
+      end
+    end
   end
 end

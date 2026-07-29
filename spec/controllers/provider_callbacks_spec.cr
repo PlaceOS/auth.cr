@@ -418,8 +418,12 @@ module PlaceOS::Auth
     # The hosted-domain restriction (Ruby's "Invalid Hosted Domain"). Every
     # configured field must have at least one value matching at least one
     # pattern. Dropping it admits ANY account the IdP will authenticate — for a
-    # multi-tenant IdP that is the whole internet. The missing-field case is
-    # the one that matters most: it must FAIL, not pass vacuously.
+    # multi-tenant IdP that is the whole internet.
+    #
+    # NB: `oauth_provider_flows_spec.cr` already covers the match and
+    # non-match cases. The gap was the ABSENT-field case, which is the one
+    # that actually matters: a missing field must FAIL, not pass vacuously.
+    # Only that case is added here, to avoid duplicating existing coverage.
 
     describe "ensure_matching", tags: "idp-ensure-matching" do
       hd_strat = -> {
@@ -438,33 +442,6 @@ module PlaceOS::Auth
           headers: HTTP::Headers{"Host" => "localhost", "Cookie" => data[:cookie]},
         )
       }
-
-      it "admits a profile whose field matches the pattern" do
-        strat = hd_strat.call
-        result = run_callback.call(strat, {
-          "id"    => "hd-ok-#{Random.rand(99999)}",
-          "email" => "ok-#{Random.rand(99999)}@localhost",
-          "name"  => "Allowed Person",
-          "hd"    => "example.com",
-        })
-        result.status_code.should eq 303
-      ensure
-        strat.try &.destroy
-      end
-
-      it "rejects a profile whose field matches no pattern" do
-        strat = hd_strat.call
-        result = run_callback.call(strat, {
-          "id"    => "hd-bad-#{Random.rand(99999)}",
-          "email" => "bad-#{Random.rand(99999)}@localhost",
-          "name"  => "Outside Person",
-          "hd"    => "evil.example.org",
-        })
-        result.status_code.should eq 302
-        result.headers["Location"].should contain "/auth/failure"
-      ensure
-        strat.try &.destroy
-      end
 
       it "FAILS CLOSED when the required field is absent entirely" do
         strat = hd_strat.call

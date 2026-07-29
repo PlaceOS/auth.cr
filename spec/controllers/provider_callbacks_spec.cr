@@ -371,5 +371,171 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
     end
+
+    # ---- authorize_params merge (matrix ID-07) -----------------------
+    #
+    # The legacy Ruby service merged the strat's `authorize_params` column into
+    # the outbound authorize URL. Dropping it is silent but consequential:
+    # Google returns NO refresh_token without `access_type=offline`, so every
+    # session dies at the first token expiry with no way to renew.
+
+    describe "authorize_params merge", tags: "idp-authorize-params" do
+      it "merges the strat's authorize_params into the authorize URL" do
+        strat = create_strat.call("https://idp.example.test", "openid")
+        strat.authorize_params = {"access_type" => "offline", "prompt" => "consent"}
+        strat.save!
+
+        result = client.get(
+          "/auth/oauth2?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 303
+        params = URI::Params.parse(result.headers["Location"].split('?', 2).last)
+        params["access_type"].should eq "offline"
+        params["prompt"].should eq "consent"
+        # the merge must not disturb the embedded redirect_uri
+        params["redirect_uri"].should eq "http://localhost/auth/oauth2/callback?id=#{strat.id}"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "leaves the authorize URL untouched when none are configured" do
+        strat = create_strat.call("https://idp.example.test", "openid")
+        result = client.get(
+          "/auth/oauth2?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        location = result.headers["Location"]
+        location.should_not contain "access_type"
+        location.should_not contain "&&"
+      ensure
+        strat.try &.destroy
+      end
+    end
+
+    # ---- ensure_matching fails closed (matrix ID-06) -----------------
+    #
+    # The hosted-domain restriction (Ruby's "Invalid Hosted Domain"). Every
+    # configured field must have at least one value matching at least one
+    # pattern. Dropping it admits ANY account the IdP will authenticate — for a
+    # multi-tenant IdP that is the whole internet. The missing-field case is
+    # the one that matters most: it must FAIL, not pass vacuously.
+
+    describe "ensure_matching", tags: "idp-ensure-matching" do
+      hd_strat = -> {
+        strat = create_strat.call("https://idp.example.test", "openid email")
+        strat.ensure_matching = {"hd" => ["example\\.com"]}
+        strat.save!
+        strat
+      }
+
+      run_callback = ->(strat : ::PlaceOS::Model::OAuthAuthentication, profile : Hash(String, String)) {
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        stub_userinfo.call("https://idp.example.test", profile)
+        data = kickoff.call(strat.id.as(String))
+        client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=test-code&state=#{data[:state]}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => data[:cookie]},
+        )
+      }
+
+      it "admits a profile whose field matches the pattern" do
+        strat = hd_strat.call
+        result = run_callback.call(strat, {
+          "id"    => "hd-ok-#{Random.rand(99999)}",
+          "email" => "ok-#{Random.rand(99999)}@localhost",
+          "name"  => "Allowed Person",
+          "hd"    => "example.com",
+        })
+        result.status_code.should eq 303
+      ensure
+        strat.try &.destroy
+      end
+
+      it "rejects a profile whose field matches no pattern" do
+        strat = hd_strat.call
+        result = run_callback.call(strat, {
+          "id"    => "hd-bad-#{Random.rand(99999)}",
+          "email" => "bad-#{Random.rand(99999)}@localhost",
+          "name"  => "Outside Person",
+          "hd"    => "evil.example.org",
+        })
+        result.status_code.should eq 302
+        result.headers["Location"].should contain "/auth/failure"
+      ensure
+        strat.try &.destroy
+      end
+
+      it "FAILS CLOSED when the required field is absent entirely" do
+        strat = hd_strat.call
+        result = run_callback.call(strat, {
+          "id"    => "hd-missing-#{Random.rand(99999)}",
+          "email" => "missing-#{Random.rand(99999)}@localhost",
+          "name"  => "No Domain Person",
+          # no `hd` key at all
+        })
+        result.status_code.should eq 302
+        result.headers["Location"].should contain "/auth/failure"
+      ensure
+        strat.try &.destroy
+      end
+    end
+
+    # ---- OAuthUserMapper Link branch (matrix ID-11) ------------------
+    #
+    # Branch (2): a user who is ALREADY signed in completes a callback for a
+    # provider identity we have never seen. That must attach the new identity
+    # to the existing account, not mint a second one — otherwise linking a
+    # second IdP silently forks the user.
+
+    describe "linking a provider to a signed-in user", tags: "idp-link" do
+      it "links the new identity to the session user instead of creating one" do
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        strat = create_strat.call("https://idp.example.test", "openid email")
+
+        password = "link-branch-pw-#{Random.rand(99999)}"
+        existing = ::PlaceOS::Model::Generator.user(authority)
+        existing.password = password
+        existing.save!
+
+        before_count = ::PlaceOS::Model::User.count
+
+        session = Spec.signin!(client, existing, password)
+
+        # kickoff mutates the EXISTING session (adds oauth_state), so the
+        # signed-in uid survives into the callback.
+        kick = client.get(
+          "/auth/oauth2?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => session},
+        )
+        kick.status_code.should eq 303
+        cookie = kick.cookies[PlaceOS::Auth::SESSION_COOKIE_NAME].try { |c| "#{c.name}=#{c.value}" } || session
+        state = URI::Params.parse(kick.headers["Location"].split('?', 2).last)["state"]
+
+        uid = "link-uid-#{Random.rand(99999)}"
+        stub_token_endpoint.call("https://idp.example.test", "idp-token-xyz")
+        stub_userinfo.call("https://idp.example.test", {
+          "id"    => uid,
+          "email" => "someone-else-#{Random.rand(99999)}@localhost",
+          "name"  => "Linked Identity",
+        })
+
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=test-code&state=#{state}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
+        )
+        result.status_code.should eq 303
+
+        lookup = ::PlaceOS::Model::UserAuthLookup.where(uid: uid, provider: "oauth2").first?
+        lookup.should_not be_nil
+        # the crux: the new identity points at the ALREADY signed-in user
+        lookup.not_nil!.user_id.should eq existing.id
+        ::PlaceOS::Model::User.count.should eq before_count + 1 # only `existing`
+
+      ensure
+        strat.try &.destroy
+        existing.try &.destroy
+      end
+    end
   end
 end

@@ -498,7 +498,10 @@ module PlaceOS::Auth
         existing.password = password
         existing.save!
 
-        before_count = ::PlaceOS::Model::User.count
+        # Counted AFTER `existing` is created, so a correct link leaves this
+        # unchanged. If the mapper wrongly took the Created branch instead,
+        # the count goes UP by one — that is the account silently forking.
+        count_with_existing = ::PlaceOS::Model::User.count
 
         session = Spec.signin!(client, existing, password)
 
@@ -530,8 +533,8 @@ module PlaceOS::Auth
         lookup.should_not be_nil
         # the crux: the new identity points at the ALREADY signed-in user
         lookup.not_nil!.user_id.should eq existing.id
-        ::PlaceOS::Model::User.count.should eq before_count + 1 # only `existing`
-
+        # no SECOND account was minted for the new provider identity
+        ::PlaceOS::Model::User.count.should eq count_with_existing
       ensure
         strat.try &.destroy
         existing.try &.destroy

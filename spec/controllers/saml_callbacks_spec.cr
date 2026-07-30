@@ -143,5 +143,105 @@ module PlaceOS::Auth
         result.body.should contain "oauth state mismatch"
       end
     end
+
+    # ---- signature enforcement + continue (matrix ID-03, ID-02/SAML) ----
+    #
+    # The header note above says the callback round-trip is covered by
+    # `multi_auth_saml`'s own suite. That holds for the LIBRARY, but not for
+    # auth.cr's configuration of it, which is our code and is conditional:
+    #
+    #   want_assertions_signed:   strat.idp_cert.presence || fingerprint ? true : false
+    #   want_signature_validated: strat.idp_cert.presence || fingerprint ? true : false
+    #
+    # and `crystal-saml`'s validate_signature short-circuits `return true`
+    # when the document carries no <ds:Signature> at all. Whether a forged
+    # assertion is rejected therefore depends on OUR strat config, so it has
+    # to be pinned here. SAML is live for real clients, so this is not
+    # theoretical.
+    #
+    # Assertions are minted fresh by `Spec::SamlFixtures` with current
+    # timestamps — the shard's canned fixtures expired years ago and its own
+    # specs only use them with a 10-year clock drift that auth.cr (rightly)
+    # does not set.
+
+    describe "assertion signature enforcement", tags: "saml-signature" do
+      acs = "http://localhost/auth/adfs/callback"
+
+      signed_strat = ->(with_cert : Bool) {
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        strat = ::PlaceOS::Model::SamlAuthentication.new
+        strat.name = "sig-saml-#{Random.rand(99999)}"
+        strat.issuer = "https://sp.example.test/sig-#{Random.rand(99999)}"
+        strat.idp_sso_target_url = "https://idp.example.test/sso"
+        strat.assertion_consumer_service_url = acs
+        strat.uid_attribute = "email"
+        strat.idp_cert = Spec::SamlFixtures.idp_cert_pem if with_cert
+        strat.authority_id = authority.id
+        strat.save!
+        strat
+      }
+
+      post_assertion = ->(strat : ::PlaceOS::Model::SamlAuthentication, saml_response : String) {
+        client.post(
+          "/auth/adfs/callback?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{
+            "Host"         => "localhost",
+            "Content-Type" => "application/x-www-form-urlencoded",
+          },
+          body: "SAMLResponse=#{URI.encode_www_form(saml_response)}&RelayState=#{URI.encode_www_form("/backoffice/")}",
+        )
+      }
+
+      build = ->(strat : ::PlaceOS::Model::SamlAuthentication, email : String) {
+        Spec::SamlFixtures.response_xml(
+          acs_url: acs,
+          audience: strat.issuer.as(String),
+          email: email,
+        )
+      }
+
+      it "accepts an assertion correctly signed by the configured IdP cert" do
+        strat = signed_strat.call(true)
+        email = "saml-ok-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(build.call(strat, email))
+
+        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+
+        # a genuine assertion must NOT be bounced to the failure page
+        result.headers["Location"]?.try(&.includes?("/auth/failure")).should_not be_true
+      ensure
+        strat.try &.destroy
+      end
+
+      it "REJECTS an assertion signed by a different (attacker) keypair" do
+        strat = signed_strat.call(true)
+        email = "saml-attacker-#{Random.rand(99999)}@localhost"
+        # well-formed XML, cryptographically valid signature — wrong signer
+        xml = Spec::SamlFixtures.signed_by_attacker(build.call(strat, email))
+
+        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+
+        result.headers["Location"]?.try(&.includes?("/auth/failure")).should be_true
+        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should be_nil
+      ensure
+        strat.try &.destroy
+      end
+
+      it "REJECTS an entirely unsigned assertion when a cert is configured" do
+        strat = signed_strat.call(true)
+        email = "saml-unsigned-#{Random.rand(99999)}@localhost"
+        # no <ds:Signature> node at all — crystal-saml's validate_signature
+        # short-circuits `return true` on a missing signature, so the only
+        # thing standing between this and a forged login is want_assertions_signed
+        xml = build.call(strat, email)
+
+        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+
+        result.headers["Location"]?.try(&.includes?("/auth/failure")).should be_true
+        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should be_nil
+      ensure
+        strat.try &.destroy
+      end
+    end
   end
 end

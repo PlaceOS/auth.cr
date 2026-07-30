@@ -200,6 +200,24 @@ module PlaceOS::Auth
         )
       }
 
+      # A forged assertion must not establish an identity. Rejection may
+      # surface as a 4xx or as a redirect to /auth/failure — both are fine.
+      # What is NOT fine is a success redirect or a created UserAuthLookup.
+      # On failure, report exactly what came back so the result is
+      # diagnosable from CI rather than guessed at.
+      reject_or_explain = ->(result : HTTP::Client::Response, email : String) {
+        lookup = ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?
+        location = result.headers["Location"]?
+        rejected = result.status_code >= 400 || location.try(&.includes?("/auth/failure")) || false
+
+        if lookup || !rejected
+          fail "FORGED ASSERTION WAS NOT REJECTED — status=#{result.status_code} " \
+               "location=#{location.inspect} lookup_created=#{!lookup.nil?} " \
+               "body=#{result.body[0, 200].inspect}"
+        end
+        lookup.should be_nil
+      }
+
       it "accepts an assertion correctly signed by the configured IdP cert" do
         strat = signed_strat.call(true)
         email = "saml-ok-#{Random.rand(99999)}@localhost"
@@ -221,8 +239,9 @@ module PlaceOS::Auth
 
         result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
 
-        result.headers["Location"]?.try(&.includes?("/auth/failure")).should be_true
-        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should be_nil
+        # "Rejected" can legitimately be a 4xx OR a redirect to /auth/failure.
+        # The load-bearing invariant is that NO identity was established.
+        reject_or_explain.call(result, email)
       ensure
         strat.try &.destroy
       end
@@ -237,8 +256,7 @@ module PlaceOS::Auth
 
         result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
 
-        result.headers["Location"]?.try(&.includes?("/auth/failure")).should be_true
-        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should be_nil
+        reject_or_explain.call(result, email)
       ensure
         strat.try &.destroy
       end

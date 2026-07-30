@@ -260,6 +260,26 @@ module PlaceOS::Auth
       ensure
         strat.try &.destroy
       end
+
+      it "FAILS CLOSED when the strat has no cert or fingerprint to verify against" do
+        # Both SAML strats on the dev server are configured exactly like this.
+        # Previously `want_signature_validated` / `want_assertions_signed` both
+        # evaluated to false here, so NOTHING was checked and any assertion
+        # authenticated. A strat with no trust anchor cannot verify anything,
+        # so it must refuse rather than accept — the legacy Ruby service's
+        # check does not depend on cert presence either.
+        strat = signed_strat.call(false)
+        email = "saml-nocert-#{Random.rand(99999)}@localhost"
+        # even a properly signed assertion must be refused: we have nothing to
+        # check it against, so "valid signature" is unknowable.
+        xml = Spec::SamlFixtures.signed(build.call(strat, email))
+
+        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+
+        reject_or_explain.call(result, email)
+      ensure
+        strat.try &.destroy
+      end
     end
   end
 end

@@ -142,6 +142,13 @@ module PlaceOS::Auth
       # callbacks (e.g. some Azure flows) we also fold in the form body.
       params = callback_params
 
+      # SAML assertions authenticate the callback entirely on their own, so a
+      # response we cannot verify must never establish an identity.
+      if saml_provider?(provider) && !saml_assertion_verifiable?(id, params)
+        redirect_to "/auth/failure", :found
+        return
+      end
+
       # The provider round-trip (code->token exchange + userinfo fetch)
       # can fail for reasons outside our control: the IdP rejects the
       # code (`OAuth2::Error`), returns a non-JSON body
@@ -240,6 +247,91 @@ module PlaceOS::Auth
     private def saml_provider?(provider : String) : Bool
       provider == ExternalProviders::SAML_PROVIDER ||
         provider == ExternalProviders::SAML_PROVIDER_ALIAS
+    end
+
+    # Refuse any SAML response we cannot actually verify.
+    #
+    # Neither the shard stack nor our settings enforce this on their own:
+    #
+    #   * `crystal-saml`'s `validate_signature` does `return true` when the
+    #     document contains no `<ds:Signature>` at all — an unsigned response
+    #     validates.
+    #   * `want_assertions_signed` is stored on the settings and used ONLY to
+    #     advertise `WantAssertionsSigned="true"` in our SP metadata. Nothing
+    #     reads it during response validation.
+    #   * `want_signature_validated` gates the cryptographic comparison, but
+    #     that code is only reached once a signature node exists, and we set it
+    #     from `idp_cert.presence || idp_cert_fingerprint.presence` — so a
+    #     strat with neither disables verification entirely.
+    #
+    # Together that meant an attacker who could POST to the ACS with a
+    # self-authored, unsigned assertion was logged in as whoever they named,
+    # and the user was auto-provisioned.
+    #
+    # The legacy Ruby service never had this hole: `ruby-saml`'s
+    # `validate_signed_elements` rejects a response with zero signature nodes
+    # unconditionally (`!signed_elements.empty?`), independently of
+    # `want_assertions_signed`, and separately requires the *Assertion* to be
+    # signed when the SP asks for it. This mirrors that, so auth.cr is at
+    # least as strict as what it replaces.
+    private def saml_assertion_verifiable?(provider_id : String?, params) : Bool
+      strat = ExternalProviders.find_saml_strat(provider_id)
+      if strat.nil?
+        Log.warn { {action: "saml.verify", message: "unknown saml strategy", id: provider_id} }
+        return false
+      end
+
+      # (1) Fail CLOSED with no trust anchor. Without a cert or fingerprint
+      # there is nothing to check a signature against, so "accept" would mean
+      # "trust anyone who can reach the ACS". Ruby's check does not depend on
+      # cert presence, so refusing here keeps us no weaker than it.
+      if strat.idp_cert.presence.nil? && strat.idp_cert_fingerprint.presence.nil?
+        Log.warn { {action: "saml.verify", message: "saml strategy has no idp_cert or idp_cert_fingerprint — refusing to authenticate an unverifiable assertion", strat: strat.id} }
+        return false
+      end
+
+      raw = params.find { |key, _| key == "SAMLResponse" }.try(&.[1])
+      if raw.nil? || raw.empty?
+        Log.warn { {action: "saml.verify", message: "callback carried no SAMLResponse", strat: strat.id} }
+        return false
+      end
+
+      xml = begin
+        String.new(Base64.decode(raw))
+      rescue
+        Log.warn { {action: "saml.verify", message: "SAMLResponse was not valid base64", strat: strat.id} }
+        return false
+      end
+
+      document = begin
+        XML.parse(xml)
+      rescue
+        Log.warn { {action: "saml.verify", message: "SAMLResponse was not valid XML", strat: strat.id} }
+        return false
+      end
+
+      # (2) A signature must be PRESENT, and must sign the Response or the
+      # Assertion — not some nested element an attacker chose. Mirrors
+      # ruby-saml's `validate_signed_elements`, including its cap of at most
+      # two signature nodes (Response + Assertion).
+      nodes = document.xpath_nodes("//ds:Signature", {"ds" => "http://www.w3.org/2000/09/xmldsig#"})
+      if nodes.empty?
+        Log.warn { {action: "saml.verify", message: "SAMLResponse carried no signature — rejected", strat: strat.id} }
+        return false
+      end
+      if nodes.size > 2
+        Log.warn { {action: "saml.verify", message: "unexpected number of signature elements", count: nodes.size, strat: strat.id} }
+        return false
+      end
+      unless nodes.all? { |node| {"Response", "Assertion"}.includes?(node.parent.try(&.name)) }
+        Log.warn { {action: "saml.verify", message: "signature does not cover the Response or Assertion", strat: strat.id} }
+        return false
+      end
+
+      # The cryptographic check itself still happens in `engine.user`, which
+      # now genuinely runs because `want_signature_validated` is true whenever
+      # we get this far (a cert or fingerprint is guaranteed present above).
+      true
     end
 
     private def consume_stored_state : Tuple(String?, String?, String?)

@@ -250,9 +250,15 @@ module Authly
       revoked_at = record.revoked_at
       return if revoked_at.nil?
 
-      grace = ENV["REFRESH_REVOCATION_GRACE_SECONDS"]?.try(&.to_i?) || 30
       elapsed = Time.utc.to_unix - revoked_at # revoked_at is a unix Int64
-      return if elapsed >= 0 && elapsed < grace
+
+      # Grace applies ONLY to a rotation. A token revoked via /auth/revoke or
+      # /auth/logout is refused immediately — otherwise logout would not end
+      # the session, which is the entire point of closing this gap.
+      if record.token_type == PlaceOS::Auth::AuthlyAdapter::TokenStore::ROTATED_MARKER
+        grace = ENV["REFRESH_REVOCATION_GRACE_SECONDS"]?.try(&.to_i?) || 30
+        return if elapsed >= 0 && elapsed < grace
+      end
 
       Log.info { {action: "refresh", message: "refused a revoked refresh token", jti: jti, seconds_since_revocation: elapsed} }
       raise Error.invalid_grant

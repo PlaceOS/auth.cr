@@ -201,13 +201,67 @@ module Authly
     # Accept a Doorkeeper token when an unrevoked row exists AND the redeeming
     # client owns it (Doorkeeper validated the same pairing).
     private def validate_code!
-      Authly.jwt_decode(refresh_token)
+      payload, _ = Authly.jwt_decode(refresh_token)
+      enforce_not_revoked!(payload)
+    rescue ex : Error
+      # revocation (and any other Authly error) is a decision, not a signal to
+      # try the legacy path — re-raise before the catch-all below
+      raise ex
     rescue e
       legacy = PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.lookup(refresh_token)
       raise Error.invalid_grant if legacy.nil?
       unless PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.client_matches?(legacy, client_id)
         raise Error.invalid_grant
       end
+    end
+
+    # Refuse a refresh token that has been revoked.
+    #
+    # Upstream `validate_code!` only checks that the JWT decodes — it never
+    # consults the token store. The refresh token's `jti` is also never written
+    # by `store_token_metadata` (refresh tokens are stateless JWTs even with
+    # `persist_jwt_tokens` on). So `POST /auth/revoke` wrote `revoked_at` and
+    # the token carried on minting access tokens for its full 30-day TTL:
+    # revocation and logout did not end a session. Doorkeeper had no such gap —
+    # the access and refresh tokens were columns of a single row.
+    #
+    # The complication is that ROTATION also revokes: `revoke_old_refresh_token`
+    # marks the presented token revoked before returning its replacement. So a
+    # naive "revoked => reject" breaks the ts-client boot race (RF-05, P0),
+    # where the SPA legitimately submits the SAME refresh token twice within
+    # milliseconds — the second submission would arrive after the first had
+    # rotated and revoked it, logging every SPA out on startup.
+    #
+    # A short grace window separates the two: a double-submit lands inside it,
+    # a logged-out session or a stolen token does not. This is no weaker than
+    # what it replaces — Doorkeeper's `previous_refresh_token` kept the old
+    # token usable until the *successor* was used, which is typically a longer
+    # window than this.
+    #
+    # Tune with REFRESH_REVOCATION_GRACE_SECONDS; 0 disables the window
+    # entirely (strict single-use, which will break SPA boot).
+    private def enforce_not_revoked!(payload) : Nil
+      jti = payload["jti"]?.try(&.as_s?)
+      return if jti.nil? || jti.empty?
+
+      record = ::PlaceOS::Model::OAuthToken.where(jti: jti).first?
+      return if record.nil?
+
+      revoked_at = record.revoked_at
+      return if revoked_at.nil?
+
+      elapsed = Time.utc.to_unix - revoked_at # revoked_at is a unix Int64
+
+      # Grace applies ONLY to a rotation. A token revoked via /auth/revoke or
+      # /auth/logout is refused immediately — otherwise logout would not end
+      # the session, which is the entire point of closing this gap.
+      if record.token_type == PlaceOS::Auth::AuthlyAdapter::TokenStore::ROTATED_MARKER
+        grace = ENV["REFRESH_REVOCATION_GRACE_SECONDS"]?.try(&.to_i?) || 30
+        return if elapsed >= 0 && elapsed < grace
+      end
+
+      Log.info { {action: "refresh", message: "refused a revoked refresh token", jti: jti, seconds_since_revocation: elapsed} }
+      raise Error.invalid_grant
     end
   end
 
@@ -273,7 +327,20 @@ module Authly
       if legacy = PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.lookup(@refresh_token)
         PlaceOS::Auth::AuthlyAdapter::LegacyRefresh.revoke!(legacy)
       else
-        @token_manager.revoke(@refresh_token)
+        # Record this as a ROTATION rather than a plain revocation, so the
+        # refresh path can tell "just replaced" from "deliberately revoked"
+        # and grant a grace window to the former only.
+        store = Authly.config.token_store
+        jti = begin
+          Authly.jwt_decode(@refresh_token).first["jti"]?.try(&.as_s?)
+        rescue
+          nil
+        end
+        if jti && (rotatable = store.as?(PlaceOS::Auth::AuthlyAdapter::TokenStore))
+          rotatable.revoke_rotated(jti)
+        else
+          @token_manager.revoke(@refresh_token)
+        end
       end
     end
 

@@ -23,6 +23,29 @@ module PlaceOS::Auth::AuthlyAdapter
   class TokenStore
     include ::Authly::TokenStore
 
+    # Marks a refresh token revoked because it was ROTATED (i.e. redeemed and
+    # replaced), as opposed to deliberately revoked via `/auth/revoke` or
+    # `/auth/logout`. The refresh path grants a brief grace window to the
+    # former and none at all to the latter — see `RefreshToken#validate_code!`.
+    # Recorded in `token_type` because revocation-marker rows never carry one.
+    ROTATED_MARKER = "refresh_rotated"
+
+    # Revoke a refresh token that has just been rotated.
+    #
+    # Deliberately distinct from `revoke`: a rotated token must stay briefly
+    # redeemable so the ts-client boot race (which submits the same refresh
+    # token twice within milliseconds) does not log the SPA out, whereas an
+    # explicitly revoked token must stop working immediately or logout means
+    # nothing. An already-revoked token is left alone — an explicit revocation
+    # must never be downgraded to a rotation by a later redemption.
+    def revoke_rotated(token_id : String) : Nil
+      token = find_or_initialize(token_id)
+      return if token.revoked?
+      token.token_type = ROTATED_MARKER
+      token.revoked_at = Time.utc.to_unix
+      token.save!
+    end
+
     def store(token_id : String, payload) : Nil
       ensure_payload!(payload)
 

@@ -249,7 +249,7 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "still accepts a refresh token that was explicitly revoked (KNOWN GAP)" do
+      it "REFUSES a refresh token that was explicitly revoked" do
         user = make_user.call
         app = make_app.call(false)
         token = Spec::LegacyFixtures.current_refresh_token(app.uid.as(String), user.id.as(String))
@@ -260,23 +260,20 @@ module PlaceOS::Auth
           body: URI::Params.build { |fp| fp.add("token", token) }).status_code.should eq 200
         row_revoked.call(jti).should be_true
 
-        # ...but nothing reads it back on the refresh path.
-        # `Authly::RefreshToken#validate_code!` (and the auth.cr override in
-        # authly_adapter.cr) only checks that the JWT decodes — it never calls
-        # `TokenStore#revoked?`. So a revoked refresh token keeps working for
-        # its full 30-day TTL, and `POST /auth/revoke` is effectively a no-op
-        # for refresh tokens.
+        # ...and the refresh path now reads it back. Previously
+        # `validate_code!` only checked that the JWT decoded, so a revoked
+        # refresh token kept minting access tokens for its full 30-day TTL and
+        # `POST /auth/revoke` was effectively a no-op — logout did not end the
+        # session. `enforce_not_revoked!` closes that.
         #
-        # This is pinned as the CURRENT behaviour rather than asserted as
-        # correct: RF-05 (the ts-client boot race, refresh_hardening_spec.cr)
-        # needs *some* replay tolerance, so closing this needs a grace window
-        # rather than strict single-use, and that is a deliberate change — the
-        # day it lands, this example must flip to expecting 400 invalid_grant.
+        # NO grace window applies here: the grace exists solely for ROTATION
+        # (the ts-client boot race, RF-05), and rotation is recorded distinctly
+        # via TokenStore::ROTATED_MARKER. A deliberate revocation takes effect
+        # immediately, which is the entire point.
         result = refresh.call(app, token, "")
-        result.status_code.should eq 200
-        claims = decode.call(JSON.parse(result.body)["access_token"].as_s)
-        scopes_of.call(claims).should eq ["public"]
-        claims["sub"].as_s.should eq user.id.as(String)
+        result.status_code.should eq 400
+        JSON.parse(result.body)["error"].as_s.should eq "invalid_grant"
+        JSON.parse(result.body)["access_token"]?.should be_nil
       ensure
         app.try &.destroy
         user.try &.destroy
@@ -310,7 +307,7 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "nevertheless still accepts the rotated token — there is no reuse detection (KNOWN GAP)" do
+      it "tolerates an immediate replay (boot race) but refuses it once the grace window closes" do
         user = make_user.call
         app = make_app.call(false)
         original = Spec::LegacyFixtures.current_refresh_token(app.uid.as(String), user.id.as(String))
@@ -319,22 +316,35 @@ module PlaceOS::Auth
         first.status_code.should eq 200
         rotated = JSON.parse(first.body)["refresh_token"].as_s
 
-        # Replay of the already-rotated token, outside any plausible boot-race
-        # window. RFC 6819 §5.2.2.3 / OAuth 2.0 Security BCP §4.13 want this
-        # rejected and the token family revoked. auth.cr has no window at all:
-        # rotation records `revoked_at` (previous example) but redemption never
-        # consults it, so a stolen refresh token stays usable for its full
-        # 30-day TTL even after the legitimate client has rotated it. Ruby
-        # Doorkeeper revoked the previous token except for the single
-        # `previous_refresh_token` grace slot.
-        #
-        # Pinned as current behaviour, not endorsed: RF-05 (the ts-client double
-        # submit on boot) means the fix is a grace window, not strict single-use.
+        # (a) Immediate replay — the ts-client boot race (RF-05, P0). The SPA
+        # legitimately submits the same refresh token twice within
+        # milliseconds; rejecting this would log every SPA out on startup.
+        # Rotation is recorded with TokenStore::ROTATED_MARKER, and rotated
+        # tokens stay redeemable for REFRESH_REVOCATION_GRACE_SECONDS.
         replay = refresh.call(app, original, "")
         replay.status_code.should eq 200
         replay_claims = decode.call(JSON.parse(replay.body)["access_token"].as_s)
         scopes_of.call(replay_claims).should eq ["public"]
         replay_claims["sub"].as_s.should eq user.id.as(String)
+
+        # (b) The same replay once the window has closed — a stolen token being
+        # reused long after the legitimate client rotated it. Rather than
+        # sleeping out the real window, collapse it to zero for this call.
+        # RFC 6819 §5.2.2.3 / OAuth 2.0 Security BCP §4.13.
+        previous_grace = ENV["REFRESH_REVOCATION_GRACE_SECONDS"]?
+        begin
+          ENV["REFRESH_REVOCATION_GRACE_SECONDS"] = "0"
+          stale = refresh.call(app, original, "")
+          stale.status_code.should eq 400
+          JSON.parse(stale.body)["error"].as_s.should eq "invalid_grant"
+          JSON.parse(stale.body)["access_token"]?.should be_nil
+        ensure
+          if prev = previous_grace
+            ENV["REFRESH_REVOCATION_GRACE_SECONDS"] = prev
+          else
+            ENV.delete("REFRESH_REVOCATION_GRACE_SECONDS")
+          end
+        end
 
         # And the legitimate chain is not collateral damage — whatever policy
         # replaces the above, THIS must keep holding or every SPA logs out on

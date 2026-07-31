@@ -398,11 +398,14 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      # NOT IMPLEMENTED — companion to the above, and the more serious half:
-      # a refresh token that the client has explicitly revoked is still
-      # redeemable, because `RefreshToken#validate_code!` only checks that the
-      # JWT decodes.
-      pending "rejects a refresh token that was revoked via the revocation endpoint" do
+      # The more serious half of IR-07, now closed. A refresh token the client
+      # has explicitly revoked used to stay redeemable for its full 30-day TTL,
+      # because `RefreshToken#validate_code!` only checked that the JWT decoded
+      # and never consulted the token store — so revocation and logout did not
+      # end a session. `enforce_not_revoked!` reads it back. No grace window
+      # applies to a deliberate revocation; the window exists solely for
+      # rotation (the ts-client boot race, RF-05).
+      it "rejects a refresh token that was revoked via the revocation endpoint" do
         user, app, _redirect, _access_token, refresh_token = user_grant.call
         form_post.call("/auth/oauth/revoke", {"token" => refresh_token}, nil).status_code.should eq 200
 

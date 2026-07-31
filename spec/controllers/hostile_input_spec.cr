@@ -92,13 +92,22 @@ module PlaceOS::Auth
     end
 
     it "never echoes a hostile redirect_uri back as a redirect target" do
-      # open-redirect guard: an unregistered/hostile redirect_uri must produce
-      # a non-redirectable error, never a Location pointing at the attacker.
+      # Open-redirect guard on the *unauthenticated* authorize request — the
+      # shape a scanner actually sends. The only acceptable outcome is the
+      # login bounce; forwarding to the supplied URI would make /auth/authorize
+      # an open redirect for anyone, no session required.
+      #
+      # Asserted as a positive (303 to exactly /auth/login) rather than
+      # "Location doesn't contain evil.example": with no session there is no
+      # Location to inspect on the error paths, so the negative alone passes
+      # vacuously. The signed-in case — where a code would really be minted
+      # if the redirect check were missing — is AU-03 in
+      # `authorize_validation_spec.cr`.
       response = client.get(
         "/auth/authorize?response_type=code&client_id=x&redirect_uri=https://evil.example/steal",
         headers: headers)
-      response.status_code.should be < 500
-      response.headers["Location"]?.try(&.includes?("evil.example")).should_not be_true
+      response.status_code.should eq 303
+      response.headers["Location"].should eq "/auth/login"
     end
 
     it "survives a garbage bearer token on the token-introspection surfaces" do

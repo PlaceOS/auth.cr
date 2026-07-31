@@ -600,8 +600,16 @@ module PlaceOS::Auth
           "code"         => code,
           "redirect_uri" => redirect_a,
         })
-        stolen.status_code.should eq 401
-        JSON.parse(stolen.body)["error"].as_s.should eq "unauthorized_client"
+        # 400 invalid_redirect_uri, NOT 401 unauthorized_client: authly's
+        # `validate!` runs `valid_redirect?` before `client_authorized?`
+        # (lib/authly/.../grants/authorization_code.cr), so presenting A's URI
+        # trips the redirect check first — B never reaches the client check.
+        # The security property is identical either way (refused, no token);
+        # only which guard fires differs, and it is pinned here so a
+        # reordering upstream shows up as a deliberate decision rather than a
+        # silent change.
+        stolen.status_code.should eq 400
+        JSON.parse(stolen.body)["error"].as_s.should eq "invalid_redirect_uri"
         JSON.parse(stolen.body)["access_token"]?.should be_nil
 
         # The code was still live throughout — A redeems it afterwards. This

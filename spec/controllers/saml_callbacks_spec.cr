@@ -218,15 +218,37 @@ module PlaceOS::Auth
         lookup.should be_nil
       }
 
-      it "accepts an assertion correctly signed by the configured IdP cert" do
+      # PENDING until the `crystal-saml` shard can verify a signature.
+      #
+      # This case previously asserted only that `Location` did not contain
+      # "/auth/failure". A rejection returns 400 with NO Location at all, so
+      # the expression was `nil.should_not be_true` — which PASSES. It was
+      # reporting green while the assertion was actually being refused.
+      #
+      # Rewritten to assert the thing that matters (an identity is
+      # established), which correctly fails today because of two independent
+      # bugs in `crystal-saml`, both confirmed by experiment:
+      #
+      #   1. `validate_signature` serialises `SignedInfo` with
+      #      `XML::Node#to_xml`, losing the namespace it INHERITS when the IdP
+      #      declares xmldsig as a DEFAULT namespace on <Signature> (what real
+      #      IdPs emit). The canonical bytes then differ from the signer's.
+      #      Fix written, pending push access to spider-gazelle/crystal-saml.
+      #   2. `sign_document` writes its `uuid` ARGUMENT into `Reference URI`
+      #      rather than the signed element's actual ID, so `verify_digest`
+      #      can never resolve the referenced element — the library's own
+      #      sign->verify round trip has never worked.
+      #
+      # Un-pend once the shard is fixed; the assertion below is what we want.
+      pending "accepts an assertion correctly signed by the configured IdP cert" do
         strat = signed_strat.call(true)
         email = "saml-ok-#{Random.rand(99999)}@localhost"
         xml = Spec::SamlFixtures.signed(build.call(strat, email))
 
-        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+        post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
 
-        # a genuine assertion must NOT be bounced to the failure page
-        result.headers["Location"]?.try(&.includes?("/auth/failure")).should_not be_true
+        # positive assertion: a genuine assertion must establish an identity
+        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should_not be_nil
       ensure
         strat.try &.destroy
       end

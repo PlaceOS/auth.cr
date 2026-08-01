@@ -137,6 +137,56 @@ module Authly
     rescue
       nil
     end
+
+    # SECURITY patch: enforce PKCE at *redemption* (RFC 7636 §4.6).
+    #
+    # Upstream `verify_challenge!` opens with `return if verifier.empty?`, so
+    # a code minted WITH a `code_challenge` can be redeemed by simply omitting
+    # `code_verifier` — the challenge baked into the code is never compared.
+    # `Authly.config.enforce_pkce` does not close this: it is read only by the
+    # *authorize* handler, deciding whether a challenge must be supplied when
+    # the code is minted, and is `false` for us anyway.
+    #
+    # PlaceOS SPAs are PUBLIC clients — ts-client's `createRefreshURL` sends no
+    # `client_secret` on the code exchange — so PKCE is the only control
+    # between an intercepted code and an access token. Anyone who obtained a
+    # code (browser history, a `Referer` header, a proxy log) could drop the
+    # verifier and exchange it. Verified against the pre-fix build: code +
+    # public client_id + redirect_uri, no secret and no verifier, returned 200
+    # and a full token pair.
+    #
+    # This is a REGRESSION against the Ruby service, not a shared gap.
+    # Doorkeeper 5.9.2 guards it twice: `validate_params` errors when
+    # `grant.uses_pkce? && code_verifier.blank?`, and `validate_code_verifier`
+    # accepts a blank verifier only via `return grant.code_challenge.blank?`.
+    #
+    # Raises `unauthorized_client` (401) to match the adjacent wrong-verifier
+    # path — RFC 7636 §4.6 nominally prescribes `invalid_grant`, but the two
+    # are the same event and clients benefit from one consistent answer.
+    private def verify_challenge!
+      # No challenge was issued with this code, so there is nothing to verify.
+      # (Confidential clients doing the plain authorization-code flow.)
+      return if challenge.empty?
+
+      # A challenge WAS issued: the verifier is mandatory from here on.
+      raise Error.unauthorized_client if verifier.empty?
+
+      raise Error.unauthorized_client unless resolved_code_challenge.valid?(verifier)
+    end
+
+    # `/auth/authorize` stores `code_challenge_method || ""`, so a client that
+    # sends `code_challenge` without a method mints a code carrying `""`.
+    # Upstream `CodeChallengeBuilder.build` raises `ArgumentError` on that —
+    # which is not an `Authly::Error`, so it escapes the token controller's
+    # typed rescues and 500s the endpoint (SEC-01: never 5xx). RFC 7636 §4.3
+    # specifies "plain" as the default when the method is omitted, so this
+    # input is legal rather than hostile; honour the default, and downgrade
+    # any genuinely unrecognised method to a 401 instead of a crash.
+    private def resolved_code_challenge
+      CodeChallengeBuilder.build(challenge, method.presence || "plain")
+    rescue ArgumentError
+      raise Error.unauthorized_client
+    end
   end
 
   # Patch: authly's refresh token (`token_generator.cr#generate_refresh_token`)

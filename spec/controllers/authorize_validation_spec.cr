@@ -493,34 +493,25 @@ module PlaceOS::Auth
     # --- AU-11: authorization-code single use --------------------------
 
     describe "authorization-code single use (AU-11)" do
-      # KNOWN DIVERGENCE — do not convert this to `it` until the server
-      # actually consumes codes; it documents a gap, it does not pin
-      # behaviour.
+      # auth.cr's authorization code is a *stateless* JWT (`Authly::Code#jwt`:
+      # jti, code, challenge, method, scope, user_id, redirect_uri, iat, iss,
+      # exp) with a 10-minute TTL, and redemption verified only the signature,
+      # the embedded redirect_uri, the client and the PKCE challenge. Nothing
+      # recorded that a code had been spent, so one code minted a fresh
+      # access+refresh pair on every presentation for ten minutes — an RFC 6749
+      # §4.1.2 break ("The client MUST NOT use the authorization code more than
+      # once ... the authorization server MUST deny the request") and a parity
+      # break, since Doorkeeper revoked the grant row on first use.
       #
-      # auth.cr's authorization code is a *stateless* JWT
-      # (`Authly::Code#jwt`: jti, code, challenge, method, scope, user_id,
-      # redirect_uri, iat, iss, exp) with a 10-minute TTL. Redemption
-      # (`Authly::AuthorizationCode#authorized?`) verifies the signature,
-      # the embedded redirect_uri, the client and the PKCE challenge — and
-      # nothing anywhere records that the code has been spent. There is no
-      # consumption store: `TokenStore` only ever sees access/refresh token
-      # jtis, never the code's.
+      # Closed by `AuthlyAdapter::CodeStore`, which claims the code's jti
+      # against the unique index on `oauth_tokens.jti`.
       #
-      # So a code can be replayed for the full 10 minutes, each replay
-      # minting a fresh access+refresh pair. Ruby Doorkeeper revoked the
-      # grant on first use (`Doorkeeper::AccessGrant#revoke`), so this is a
-      # parity break as well as an RFC 6749 §4.1.2 one ("The client MUST NOT
-      # use the authorization code more than once ... the authorization
-      # server MUST deny the request and SHOULD revoke ... all tokens
-      # previously issued based on that authorization code").
-      #
-      # Flipping this on is a behaviour change that needs a decision, not
-      # just a test: RF-05 established that the ts-client boot race
-      # double-submits its *refresh* token, and strict reuse-detection there
-      # would revoke the family on every SPA boot. If the code exchange
-      # races the same way, single-use has to be spend-once-and-return-the
-      # same-token (or a short grace window), not revoke-the-family.
-      pending "refuses a replayed authorization code and revokes what it issued" do
+      # Enforcement is STRICT — no grace window, unlike the refresh path
+      # (RF-05), where the ts-client boot race genuinely double-submits the
+      # same refresh token. Codes do not race that way: ts-client clears both
+      # `_code` and the sessionStorage challenge while building the token URL,
+      # so each boot cycle runs a fresh authorize and gets a new code.
+      it "refuses a replayed authorization code" do
         user, password = make_user.call
         redirect = "https://au11.example/cb-#{Random.rand(999_999)}"
         app = make_app.call(redirect)
@@ -547,19 +538,76 @@ module PlaceOS::Auth
 
         first = exchange.call
         first.status_code.should eq 200
-        issued = JSON.parse(first.body)["access_token"].as_s
+        JSON.parse(first.body)["access_token"].as_s.should_not be_empty
 
         replay = exchange.call
         replay.status_code.should eq 400
         JSON.parse(replay.body)["error"].as_s.should eq "invalid_grant"
         JSON.parse(replay.body)["access_token"]?.should be_nil
 
-        # RFC 6749 §4.1.2 SHOULD: the token minted from the replayed code's
-        # first use is revoked too.
-        ::Authly.valid?(issued).should be_false
+        # And it stays refused — the marker is durable, not a one-shot latch.
+        third = exchange.call
+        third.status_code.should eq 400
+        JSON.parse(third.body)["access_token"]?.should be_nil
       ensure
         app.try &.destroy
         user.try &.destroy
+      end
+
+      # Two distinct codes must not interfere: single-use is per code, not a
+      # global "one exchange per client" latch. Guards against a claim key
+      # that accidentally collapses (e.g. keying on client_id).
+      it "still honours a second, independently issued code" do
+        user, password = make_user.call
+        redirect = "https://au11.example/cb-#{Random.rand(999_999)}"
+        app = make_app.call(redirect)
+        client_id = app.uid.as(String)
+        cookie = Spec.signin!(client, user, password)
+
+        get_code = -> {
+          res = authorize.call(cookie, {
+            "response_type" => "code",
+            "client_id"     => client_id,
+            "redirect_uri"  => redirect,
+            "scope"         => "public",
+          })
+          res.status_code.should eq 302
+          redirect_params.call(res.headers["Location"])["code"]
+        }
+
+        first_code = get_code.call
+        second_code = get_code.call
+        first_code.should_not eq second_code
+
+        exchange = ->(c : String) {
+          form_post.call("/auth/token", {
+            "grant_type"   => "authorization_code",
+            "client_id"    => client_id,
+            "code"         => c,
+            "redirect_uri" => redirect,
+          })
+        }
+
+        exchange.call(first_code).status_code.should eq 200
+        # Spending the first must not spend the second.
+        second = exchange.call(second_code)
+        second.status_code.should eq 200
+        JSON.parse(second.body)["access_token"].as_s.should_not be_empty
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      # RFC 6749 §4.1.2 also SHOULDs revoking tokens already issued from a
+      # code once a replay is detected — the first use may have been the
+      # attacker winning a race with the real client.
+      #
+      # KNOWN GAP, deliberately pending: linking issued tokens back to the
+      # code they came from needs a column `oauth_tokens` does not have, and
+      # that is a `placeos-models` migration (a separate repo, and one this
+      # campaign is not touching until local -> dev -> prod is settled). The
+      # MUST above is enforced; only the SHOULD is outstanding.
+      pending "revokes tokens already issued from a code when a replay is seen" do
       end
     end
 

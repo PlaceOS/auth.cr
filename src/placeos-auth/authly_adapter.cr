@@ -4,6 +4,7 @@ require "openssl"
 
 require "./authly_adapter/client"
 require "./authly_adapter/claims_provider"
+require "./authly_adapter/code_store"
 require "./authly_adapter/legacy_refresh"
 require "./authly_adapter/owner"
 require "./authly_adapter/token_store"
@@ -366,6 +367,52 @@ module Authly
         end
       end
       ""
+    end
+
+    # Spend the authorization code exactly once (RFC 6749 §4.1.2, AU-11).
+    #
+    # `access_token` is the right seam: `Grant#token` calls it only after
+    # `validate_scope!` and `authorized?` have passed, and immediately before
+    # any token is minted. Claiming earlier — in `authorized?`, say — would let
+    # anyone holding a stolen code burn it before the legitimate client
+    # redeemed it, turning a confidentiality bug into a denial-of-service one.
+    # Claiming later would leave the mint itself racing.
+    #
+    # A DB failure here propagates rather than being swallowed: no token is
+    # issued either way, and a 5xx correctly reports an outage instead of
+    # telling the client its perfectly good code was invalid.
+    private def access_token
+      spend_authorization_code!
+      previous_def
+    end
+
+    private def spend_authorization_code! : Nil
+      return if @code.empty?
+
+      jti = begin
+        auth_code["jti"]?.try(&.as_s?)
+      rescue
+        nil
+      end
+      # A code with no jti predates this field; there is nothing to key single
+      # use on, so preserve the old behaviour rather than reject it outright.
+      return if jti.nil? || jti.empty?
+
+      claimed = PlaceOS::Auth::AuthlyAdapter::CodeStore.claim(
+        code_jti: jti,
+        client_id: @client_id.presence,
+        sub: @grant_strategy.user_id.try(&.presence),
+        scope: scope.presence,
+        expires_at: begin
+          auth_code["exp"]?.try(&.as_i64?)
+        rescue
+          nil
+        end,
+      )
+      return if claimed
+
+      Log.info { {action: "token", message: "refused a replayed authorization code", code_jti: jti, client_id: @client_id} }
+      raise Error.invalid_grant
     end
 
     # Upstream revokes the old refresh token via the JWT token manager, which

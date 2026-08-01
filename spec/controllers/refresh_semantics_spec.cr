@@ -257,7 +257,7 @@ module PlaceOS::Auth
 
         # `POST /auth/revoke` does record the revocation...
         client.post("/auth/revoke", headers: form_headers,
-          body: URI::Params.build { |fp| fp.add("token", token) }).status_code.should eq 200
+          body: URI::Params.build(&.add("token", token))).status_code.should eq 200
         row_revoked.call(jti).should be_true
 
         # ...and the refresh path now reads it back. Previously

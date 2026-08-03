@@ -347,52 +347,91 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      it "leaves the refresh token live when the access token is revoked — KNOWN GAP, pinned" do
+      # Pins the IMPLEMENTATION nuance of the cascade, not a gap. Revoking an
+      # access token gives us no way to find the refresh token's jti — the
+      # `ati` link only runs refresh -> access — so the refresh token's own
+      # row is never stamped. The cascade is enforced at redemption instead
+      # (the example below). This is pinned so nobody "corrects" the false
+      # into a reverse lookup that cannot exist.
+      it "does not stamp the refresh token's own row when the access token is revoked" do
         user, app, _redirect, access_token, refresh_token = user_grant.call
 
         ::Authly.valid?(access_token).should be_true
         form_post.call("/auth/oauth/revoke", {"token" => access_token}, nil).status_code.should eq 200
         ::Authly.valid?(access_token).should be_false
 
-        # This pins current behaviour so that a fix cannot land silently — it
-        # must update this example and un-pend the two below. `Authly.revoke`
-        # resolves the presented token's own `jti` and revokes only that row;
-        # the refresh token carries a different `jti` and is never persisted
-        # by `store_token_metadata`, so nothing links the two.
         ::Authly.revoked?(refresh_token).should be_false
       ensure
         app.try &.destroy
         user.try &.destroy
       end
 
-      # NOT IMPLEMENTED — see the PPT-2536 report for IR-07.
-      #
       # RFC 7009 §2.1 and Doorkeeper both invalidate the whole grant: in
-      # Doorkeeper the access token and the refresh token are two columns of
-      # one `oauth_access_tokens` row, so revoking either kills both. In
-      # auth.cr they are two independent JWTs with independent `jti`s, only
-      # the access token's `jti` is persisted, and `Authly::RefreshToken`'s
-      # `validate_code!` never consults the token store at all. The practical
-      # consequence is that revocation (and therefore logout) does not end a
-      # session: the refresh token keeps minting access tokens for its full
-      # 30-day TTL.
+      # Doorkeeper the access and refresh tokens were two columns of one
+      # `oauth_access_tokens` row, so revoking either killed both. Ours are
+      # independent JWTs, so revocation used to leave the refresh token
+      # minting access tokens for its full 30-day TTL — revocation, and
+      # therefore logout, did not end the session.
       #
-      # Fixing this needs a link between the two records (e.g. persisting the
-      # refresh `jti` on the access-token row) plus a revocation check in the
-      # refresh grant — and the latter must not break RF-05, which requires
-      # that a double-submitted refresh token still succeeds.
-      pending "revoking an access token also invalidates the refresh token issued with it (RFC 7009 §2.1)" do
+      # Closed by the `ati` claim (written by the `AccessToken#initialize`
+      # patch) plus `RefreshToken#enforce_grant_not_revoked!`.
+      it "revoking an access token also invalidates the refresh token issued with it (RFC 7009 §2.1)" do
         user, app, _redirect, access_token, refresh_token = user_grant.call
-        form_post.call("/auth/oauth/revoke", {"token" => access_token}, nil).status_code.should eq 200
 
-        refreshed = form_post.call("/auth/oauth/token", {
+        # Pre-condition, so the assertion below cannot pass vacuously: this
+        # refresh token works right now.
+        working = form_post.call("/auth/oauth/token", {
           "grant_type"    => "refresh_token",
           "client_id"     => app.uid.as(String),
           "client_secret" => app.secret,
           "refresh_token" => refresh_token,
         }, nil)
+        working.status_code.should eq 200
+        rotated = JSON.parse(working.body)["refresh_token"].as_s
+        fresh_access = JSON.parse(working.body)["access_token"].as_s
+
+        # Revoke the access token from THAT rotation, then its partner must
+        # stop working.
+        form_post.call("/auth/oauth/revoke", {"token" => fresh_access}, nil).status_code.should eq 200
+
+        refreshed = form_post.call("/auth/oauth/token", {
+          "grant_type"    => "refresh_token",
+          "client_id"     => app.uid.as(String),
+          "client_secret" => app.secret,
+          "refresh_token" => rotated,
+        }, nil)
         refreshed.status_code.should eq 400
         JSON.parse(refreshed.body)["error"].as_s.should eq "invalid_grant"
+        JSON.parse(refreshed.body)["access_token"]?.should be_nil
+
+        # And the original access token is untouched by all of this — the
+        # cascade is per grant, not a blanket kill of the user's tokens.
+        access_token.should_not eq fresh_access
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      # The cascade must not fire on the ts-client boot race (RF-05): rotation
+      # revokes the old REFRESH token and never the access token, so a
+      # double-submitted refresh token still succeeds inside the grace window.
+      it "does not let the cascade break a double-submitted refresh token" do
+        user, app, _redirect, _access_token, refresh_token = user_grant.call
+
+        body = {
+          "grant_type"    => "refresh_token",
+          "client_id"     => app.uid.as(String),
+          "client_secret" => app.secret,
+          "refresh_token" => refresh_token,
+        }
+
+        first = form_post.call("/auth/oauth/token", body, nil)
+        first.status_code.should eq 200
+
+        # Same token again, immediately — the SPA boot race.
+        second = form_post.call("/auth/oauth/token", body, nil)
+        second.status_code.should eq 200
+        JSON.parse(second.body)["access_token"].as_s.should_not be_empty
       ensure
         app.try &.destroy
         user.try &.destroy

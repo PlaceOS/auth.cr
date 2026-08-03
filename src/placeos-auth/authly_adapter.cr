@@ -441,13 +441,50 @@ module Authly
       end
     end
 
-    # Upstream unconditionally reads `auth_code["user_id"]` when the scope
-    # includes `openid` — but a refresh grant has no auth code, so a legacy
-    # Doorkeeper row whose scopes include `openid` would 500 the token
-    # endpoint. An id_token is only derivable from a fresh authorization.
+    # ID tokens live 120 seconds, matching the Ruby service: PlaceOS left
+    # doorkeeper-openid_connect's `expiration` commented out in
+    # `config/initializers/doorkeeper_openid_connect.rb`, so its default of
+    # 120 applied. The ID token is a one-shot assertion consumed immediately
+    # at sign-in, not a credential to hold — the access token carries the
+    # session.
+    ID_TOKEN_TTL = 120
+
+    # Patch: two fixes to id_token generation.
+    #
+    # 1. Upstream unconditionally reads `auth_code["user_id"]` when the scope
+    #    includes `openid` — but a refresh grant has no auth code, so a legacy
+    #    Doorkeeper row whose scopes include `openid` would 500 the token
+    #    endpoint. An id_token is only derivable from a fresh authorization.
+    #
+    # 2. Upstream builds the payload from `Authly.owners.id_token(user_id)`
+    #    plus `iss` and `aud` only, and `Authly.jwt_encode` is a bare
+    #    `JWT.encode` that adds nothing — so the ID token carried NO `exp` and
+    #    NO `iat`. OIDC Core §2 lists both as REQUIRED, and RFC 7519 §4.1.4
+    #    means an assertion without `exp` never expires: a strict relying
+    #    party rejects it, a lax one accepts it forever. doorkeeper-openid_
+    #    connect emitted `iss, sub, aud, exp, iat` (+ nonce/auth_time), so
+    #    this is a parity gap too.
+    #
+    # Nothing inside PlaceOS consumes the ID token today — rest-api and the
+    # SPAs authenticate with the access token — so this is an interop defect
+    # rather than a live vulnerability. It had to be closed before any
+    # external OIDC relying party is onboarded.
+    #
+    # `nonce` and `auth_time` remain unemitted: neither is REQUIRED, and
+    # `nonce` would first need `/auth/authorize` to capture it into the code.
     private def generate_id_token
       return if @code.empty?
-      previous_def
+      return unless scope.includes?("openid")
+
+      payload = Authly.owners.id_token(auth_code["user_id"].as_s)
+      payload["iss"] = Authly.config.issuer
+      payload["aud"] = @client_id
+
+      issued = Time.utc.to_unix
+      payload["iat"] = issued
+      payload["exp"] = issued + ID_TOKEN_TTL
+
+      Authly.jwt_encode(payload)
     end
   end
 end

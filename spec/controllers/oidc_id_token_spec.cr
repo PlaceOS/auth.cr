@@ -287,13 +287,40 @@ module PlaceOS::Auth
       # consumes the ID token, so this is an interop gap rather than a live
       # vulnerability, but it must be closed before an external RP is
       # onboarded.
-      pending "carries exp and iat (OIDC Core §2 REQUIRED)" do
+      it "carries exp and iat (OIDC Core §2 REQUIRED)" do
         user, app, _redirect, body = authorize_and_exchange.call("public openid")
         claims, _header = decode.call(body["id_token"].as_s)
 
         now = Time.utc.to_unix
         claims["iat"].as_i64.should be_close(now, 60)
         claims["exp"].as_i64.should be > now
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      # Ruby parity: PlaceOS left doorkeeper-openid_connect's `expiration`
+      # commented out, so its default of 120s applied. Pinned because an
+      # ID token with a long life is a bearer assertion in disguise — it is
+      # meant to be consumed once at sign-in, not held.
+      it "gives the id_token the 120-second Doorkeeper lifetime" do
+        user, app, _redirect, body = authorize_and_exchange.call("public openid")
+        claims, _header = decode.call(body["id_token"].as_s)
+
+        (claims["exp"].as_i64 - claims["iat"].as_i64).should eq 120
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      # The access token's own lifetime is 2 hours; the two must not be
+      # confused for one another.
+      it "expires the id_token well before the access token" do
+        user, app, _redirect, body = authorize_and_exchange.call("public openid")
+        claims, _header = decode.call(body["id_token"].as_s)
+        access, _ = decode.call(body["access_token"].as_s)
+
+        claims["exp"].as_i64.should be < access["exp"].as_i64
       ensure
         app.try &.destroy
         user.try &.destroy

@@ -219,10 +219,17 @@ module Authly
           # Recovered in `Grant#scope` below. Mirrors Ruby Doorkeeper, which
           # reapplies the original grant's scope on refresh.
           "scope" => @scope,
-          "name"  => "refresh token",
-          "iat"   => Time.utc.to_unix,
-          "iss"   => Authly.config.issuer,
-          "exp"   => Authly.config.refresh_ttl.from_now.to_unix,
+          # Bind this refresh token to the access token issued with it, so
+          # revoking the access token can invalidate the pair (RFC 7009 §2.1).
+          # Doorkeeper got this for free — both tokens were columns of one
+          # `oauth_access_tokens` row — whereas ours are independent JWTs with
+          # independent jtis. `@jti` is the ACCESS token's id, already set by
+          # `previous_def`. Enforced in `RefreshToken#enforce_grant_not_revoked!`.
+          "ati"  => @jti,
+          "name" => "refresh token",
+          "iat"  => Time.utc.to_unix,
+          "iss"  => Authly.config.issuer,
+          "exp"  => Authly.config.refresh_ttl.from_now.to_unix,
         })
       end
     end
@@ -254,6 +261,7 @@ module Authly
     private def validate_code!
       payload, _ = Authly.jwt_decode(refresh_token)
       enforce_not_revoked!(payload)
+      enforce_grant_not_revoked!(payload)
     rescue ex : Error
       # revocation (and any other Authly error) is a decision, not a signal to
       # try the legacy path — re-raise before the catch-all below
@@ -312,6 +320,44 @@ module Authly
       end
 
       Log.info { {action: "refresh", message: "refused a revoked refresh token", jti: jti, seconds_since_revocation: elapsed} }
+      raise Error.invalid_grant
+    end
+
+    # Refuse a refresh token whose paired ACCESS token has been revoked
+    # (RFC 7009 §2.1 cascade, IR-07).
+    #
+    # Doorkeeper invalidated the whole grant because the access and refresh
+    # tokens were two columns of one `oauth_access_tokens` row — revoking
+    # either killed both. Ours are independent JWTs with independent jtis, and
+    # only the access token's jti is ever persisted, so `POST /auth/revoke`
+    # with an access token left the refresh token minting new access tokens
+    # for its full 30-day TTL. Revocation did not end the session.
+    #
+    # The link is the `ati` claim written by the `AccessToken#initialize`
+    # patch. Enforcement is at REDEMPTION rather than by marking the refresh
+    # row revoked, because revoking an access token gives us no way to find
+    # the refresh token's jti — the mapping only runs one way. The security
+    # property is the same (the refresh token stops working the moment its
+    # access token is revoked); the visible nuance is that
+    # `Authly.revoked?(refresh_token)` stays false, which is pinned by a spec
+    # so nobody "corrects" it into a reverse-lookup that cannot exist.
+    #
+    # No grace window here, unlike rotation: an access token is only ever
+    # revoked deliberately, via `/auth/revoke` or `/auth/logout`. Rotation
+    # revokes the old REFRESH token (`revoke_rotated`) and never touches the
+    # access token, so the RF-05 boot race is untouched.
+    #
+    # Client-credentials grants carry no `ati` — their refresh tokens skip our
+    # re-mint entirely (no resource owner) — so they simply fall through.
+    private def enforce_grant_not_revoked!(payload) : Nil
+      ati = payload["ati"]?.try(&.as_s?)
+      return if ati.nil? || ati.empty?
+
+      record = ::PlaceOS::Model::OAuthToken.where(jti: ati).first?
+      return if record.nil?
+      return unless record.revoked?
+
+      Log.info { {action: "refresh", message: "refused a refresh token whose access token was revoked", access_jti: ati} }
       raise Error.invalid_grant
     end
   end

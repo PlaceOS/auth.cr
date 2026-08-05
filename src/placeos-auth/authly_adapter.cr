@@ -108,12 +108,21 @@ module Authly
   struct Code
     def jwt
       Authly.jwt_encode({
-        "jti"          => Random::Secure.hex(32),
-        "code"         => code,
-        "challenge"    => challenge,
-        "method"       => method,
-        "scope"        => scope,
-        "user_id"      => user_id,
+        "jti"       => Random::Secure.hex(32),
+        "code"      => code,
+        "challenge" => challenge,
+        "method"    => method,
+        "scope"     => scope,
+        "user_id"   => user_id,
+        # Bind the code to the client it was issued to (RFC 6749 §4.1.3,
+        # AU-13). Upstream omits this, and `redirect_uri` alone does not
+        # substitute for it: a registration is a whitespace-separated LIST
+        # (`AuthlyAdapter::Client#registered_uris`), so a client B registered
+        # with "<its own URI> <client A's URI>" satisfies both the code's
+        # embedded redirect_uri AND its own registration check, and could
+        # redeem a code minted to A — receiving a token bound to A's user.
+        # Enforced in `AuthorizationCode#decode_code` below.
+        "client_id"    => client_id,
         "redirect_uri" => redirect_uri,
         "iat"          => Time.utc.to_unix,
         "iss"          => Authly.config.issuer,
@@ -137,6 +146,42 @@ module Authly
       Authly.jwt_decode(@code).first["user_id"]?.try(&.as_s.presence)
     rescue
       nil
+    end
+
+    # SECURITY patch: bind the authorization code to its client (RFC 6749
+    # §4.1.3 — "ensure that the authorization code was issued to the
+    # authenticated confidential client, or if the client is public, ensure
+    # that the code was issued to `client_id` in the request").
+    #
+    # Upstream validates only that the request's `redirect_uri` equals the
+    # one embedded in the code, and that it is registered to the redeeming
+    # client. Those two together look like client binding, but are not:
+    # `redirect_uri` is a whitespace-separated LIST, so a client B registered
+    # with "<its own URI> <client A's URI>" passes both for a code minted to
+    # A, and walks away with a token bound to A's user.
+    #
+    # Low severity — registering a client is an admin action — but it is a
+    # real spec gap, and the fix is one claim.
+    #
+    # Codes minted before this claim existed carry no `client_id`; they are
+    # allowed through rather than rejected, so a deploy does not fail every
+    # in-flight login. That window is bounded by the 10-minute code TTL.
+    private def decode_code
+      previous_def
+      enforce_client_binding!
+    end
+
+    private def enforce_client_binding!
+      bound = begin
+        Authly.jwt_decode(@code).first["client_id"]?.try(&.as_s?)
+      rescue
+        nil
+      end
+      return if bound.nil? || bound.empty?
+      return if bound == client_id
+
+      Log.info { {action: "token", message: "refused a code redeemed by a different client", issued_to: bound, presented_by: client_id} }
+      raise Error.invalid_grant
     end
 
     # SECURITY patch: enforce PKCE at *redemption* (RFC 7636 §4.6).

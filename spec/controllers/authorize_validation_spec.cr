@@ -640,24 +640,27 @@ module PlaceOS::Auth
         authorized.status_code.should eq 302
         code = redirect_params.call(authorized.headers["Location"])["code"]
 
-        # B claims A's redirect_uri: rejected because it is not registered
-        # to B.
+        # B claims A's redirect_uri.
         stolen = form_post.call("/auth/token", {
           "grant_type"   => "authorization_code",
           "client_id"    => app_b.uid.as(String),
           "code"         => code,
           "redirect_uri" => redirect_a,
         })
-        # 400 invalid_redirect_uri, NOT 401 unauthorized_client: authly's
-        # `validate!` runs `valid_redirect?` before `client_authorized?`
-        # (lib/authly/.../grants/authorization_code.cr), so presenting A's URI
-        # trips the redirect check first — B never reaches the client check.
-        # The security property is identical either way (refused, no token);
-        # only which guard fires differs, and it is pinned here so a
-        # reordering upstream shows up as a deliberate decision rather than a
-        # silent change.
+        # 400 `invalid_grant` — the explicit client-binding check in
+        # `AuthorizationCode#decode_code` (the code's `client_id` claim does
+        # not match the redeeming client).
+        #
+        # This used to be `invalid_redirect_uri`, because the refusal came
+        # only as a side effect of authly's `validate!` running
+        # `valid_redirect?` before `client_authorized?`. That was pinned here
+        # deliberately so a reordering would surface. The binding check now
+        # runs first and answers with the code RFC 6749 §5.2 actually
+        # prescribes for a code issued to another client, so the change is an
+        # improvement rather than a regression — the guard moved from
+        # incidental to explicit.
         stolen.status_code.should eq 400
-        JSON.parse(stolen.body)["error"].as_s.should eq "invalid_redirect_uri"
+        JSON.parse(stolen.body)["error"].as_s.should eq "invalid_grant"
         JSON.parse(stolen.body)["access_token"]?.should be_nil
 
         # The code was still live throughout — A redeems it afterwards. This
@@ -720,25 +723,19 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
-      # KNOWN DIVERGENCE — see the AU-11 note; this documents a gap, it does
-      # not pin behaviour.
-      #
       # The two cases above hold only because distinct clients have distinct
-      # redirect URIs. `redirect_uri` is a whitespace-separated *list*
-      # (`AuthlyAdapter::Client#registered_uris`), so a client B registered
-      # with `<its own URI> <client A's URI>` satisfies both checks for a
-      # code minted to A — and the code carries no `client_id` claim to
-      # catch it (`Authly::Code#jwt`). B redeems A's code and receives a
-      # token bound to A's user.
+      # redirect URIs — which is not a guarantee. `redirect_uri` is a
+      # whitespace-separated *list* (`AuthlyAdapter::Client#registered_uris`),
+      # so a client B registered with `<its own URI> <client A's URI>`
+      # satisfies both of upstream's checks for a code minted to A, and would
+      # redeem it for a token bound to A's user.
       #
-      # Exploiting it needs the attacker to register a client, which is an
-      # admin action, so this is low severity — but it is a real RFC 6749
-      # §4.1.3 gap ("ensure that the authorization code was issued to the
-      # authenticated confidential client, or if the client is public,
-      # ensure that the code was issued to `client_id` in the request").
-      # The fix is one claim: put `client_id` in `Code#jwt` (auth.cr already
-      # patches that method) and compare it in `AuthorizationCode#decode_code`.
-      pending "refuses a client whose registration merely overlaps the code's redirect_uri" do
+      # Closed by a `client_id` claim on the code (`Code#jwt`) compared in
+      # `AuthorizationCode#decode_code`. RFC 6749 §4.1.3: "ensure that the
+      # authorization code was issued to the authenticated confidential
+      # client, or if the client is public, ensure that the code was issued
+      # to `client_id` in the request".
+      it "refuses a client whose registration merely overlaps the code's redirect_uri" do
         user, password = make_user.call
         redirect_a = "https://au13e.example/cb-#{Random.rand(999_999)}"
         redirect_b = "https://au13f.example/cb-#{Random.rand(999_999)}"
@@ -765,6 +762,46 @@ module PlaceOS::Auth
         stolen.status_code.should eq 400
         JSON.parse(stolen.body)["error"].as_s.should eq "invalid_grant"
         JSON.parse(stolen.body)["access_token"]?.should be_nil
+
+        # Positive control: B is a legitimate client with an overlapping
+        # registration, not an invalid one. Its OWN code must still redeem —
+        # otherwise this "fix" would just be breaking overlapping
+        # registrations wholesale.
+        b_authorized = authorize.call(cookie, {
+          "response_type" => "code",
+          "client_id"     => app_b.uid.as(String),
+          "redirect_uri"  => redirect_b,
+          "scope"         => "public",
+        })
+        b_authorized.status_code.should eq 302
+        b_code = redirect_params.call(b_authorized.headers["Location"])["code"]
+
+        b_own = form_post.call("/auth/token", {
+          "grant_type"   => "authorization_code",
+          "client_id"    => app_b.uid.as(String),
+          "code"         => b_code,
+          "redirect_uri" => redirect_b,
+        })
+        b_own.status_code.should eq 200
+        JSON.parse(b_own.body)["access_token"].as_s.should_not be_empty
+
+        # And A's own code still works for A, on the shared URI.
+        a_authorized = authorize.call(cookie, {
+          "response_type" => "code",
+          "client_id"     => app_a.uid.as(String),
+          "redirect_uri"  => redirect_a,
+          "scope"         => "public",
+        })
+        a_authorized.status_code.should eq 302
+        a_code = redirect_params.call(a_authorized.headers["Location"])["code"]
+
+        a_own = form_post.call("/auth/token", {
+          "grant_type"   => "authorization_code",
+          "client_id"    => app_a.uid.as(String),
+          "code"         => a_code,
+          "redirect_uri" => redirect_a,
+        })
+        a_own.status_code.should eq 200
       ensure
         app_a.try &.destroy
         app_b.try &.destroy

@@ -91,6 +91,44 @@ PlaceOS::Auth::Log.info {
   "(#{PlaceOS::Auth::BUILD_COMMIT} @ #{PlaceOS::Auth::BUILD_TIME.strip})"
 }
 
+# Boot-time schema check (XO-03).
+#
+# The auth pod runs NO migrations of its own, so the platform migration
+# `20260519100000000_add_oauth_tokens.sql` has to land before this service
+# does. When that ordering slips the failure is genuinely nasty and was
+# reproduced in `tasks/PPT-2536/cutover/rehearse.sh` step 8: auth.cr boots,
+# reports HEALTHY (the probes are deliberately DB-free — CFG-04), stays in the
+# load balancer, and answers a perfectly valid refresh token with
+# `invalid_grant`. Every login breaks while the symptom points squarely at the
+# client's token rather than at a missing table.
+#
+# So: say it once, loudly, at boot. Deliberately NOT fatal — a transient DB
+# problem during startup should not crash-loop the login path, and the check
+# cannot always tell "table absent" from "database briefly unreachable". The
+# stronger version (gate readiness on this) would keep the pod out of the load
+# balancer entirely, but that trades a silent failure for an outage and belongs
+# with the CFG-01/CFG-02 deployment work rather than here.
+begin
+  present = false
+  PgORM::Database.connection do |db|
+    present = db.scalar("SELECT to_regclass('public.oauth_tokens') IS NOT NULL") == true
+  end
+  unless present
+    PlaceOS::Auth::Log.error {
+      "oauth_tokens is MISSING — the platform migration " \
+      "20260519100000000_add_oauth_tokens.sql has not been applied. Token " \
+      "storage, refresh and revocation will all fail with `invalid_grant` " \
+      "even for valid tokens. This is a deployment ordering fault, not a " \
+      "client error."
+    }
+  end
+rescue e
+  PlaceOS::Auth::Log.warn(exception: e) {
+    "could not verify the oauth_tokens schema at boot — if the database is " \
+    "reachable and this persists, check that the platform migrations ran"
+  }
+end
+
 server = ActionController::Server.new(port, host)
 
 # Start clustering

@@ -53,7 +53,14 @@ module PlaceOS::Auth
         user.save!
 
         before_count = user.login_count.as(Int64)
-        before_login = Time.utc
+        # Truncated to the second on purpose. `User#last_login` is declared
+        # with `converter: Time::EpochConverterOptional`, so it round-trips as
+        # whole epoch seconds — a `Time.utc` captured with sub-second precision
+        # compares as LATER than a `last_login` stamped in the same second, and
+        # the assertion below fails intermittently depending on where in the
+        # second the run lands. Observed as a flake in a full-suite run on
+        # 2026-08-05 that passed in isolation and on re-run.
+        before_login = Time.utc.at_beginning_of_second
 
         body = {email: user.email.to_s, password: password}.to_json
         headers = HTTP::Headers{

@@ -86,7 +86,27 @@ module PlaceOS::Auth
     if secret_key_base = ENV["SECRET_KEY_BASE"]?.presence
       Digest::SHA256.hexdigest("auth.cr/cookie-session/#{secret_key_base}")
     else
-      Log.warn { "neither COOKIE_SESSION_SECRET nor SECRET_KEY_BASE set — generating an ephemeral key, sessions will not survive a restart" } unless PROD
+      # This diagnostic used to carry `unless PROD`, which inverted it: it
+      # spoke up in development, where an ephemeral key is harmless and the
+      # box gets restarted constantly anyway, and went SILENT in production,
+      # where an ephemeral key is the whole B.2 incident — every restart
+      # invalidates every session, and under k8s each replica derives a
+      # DIFFERENT key, so logins fail depending on which pod answers. The one
+      # signal a misconfigured production deployment would ever get was
+      # switched off precisely there.
+      #
+      # Escalated rather than merely un-suppressed: in production this is a
+      # deployment fault, not a note. Not fatal — Rails refuses to boot
+      # without `secret_key_base` and that is arguably right here too, but
+      # auth.cr is the login path and CFG-02 (whether helm actually delivers
+      # SECRET_KEY_BASE) is still open, so failing closed today could take a
+      # rollout down over a gap we have not finished measuring. Revisit once
+      # CFG-02 is settled.
+      if PROD
+        Log.error { "neither COOKIE_SESSION_SECRET nor SECRET_KEY_BASE is set in production — using an ephemeral session key: every restart will log all users out, and multiple replicas will not share sessions" }
+      else
+        Log.warn { "neither COOKIE_SESSION_SECRET nor SECRET_KEY_BASE set — generating an ephemeral key, sessions will not survive a restart" }
+      end
       Random::Secure.hex(32)
     end
   end

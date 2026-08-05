@@ -218,37 +218,60 @@ module PlaceOS::Auth
         lookup.should be_nil
       }
 
-      # PENDING until the `crystal-saml` shard can verify a signature.
+      # The positive control for the whole signature-enforcement block, and
+      # the one that makes the three rejection cases meaningful: without it,
+      # a build that refused EVERY assertion would pass them all.
       #
-      # This case previously asserted only that `Location` did not contain
-      # "/auth/failure". A rejection returns 400 with NO Location at all, so
-      # the expression was `nil.should_not be_true` — which PASSES. It was
-      # reporting green while the assertion was actually being refused.
+      # It was pending for two stated reasons. The first was real —
+      # `validate_signature` lost the namespace `SignedInfo` inherits when the
+      # IdP declares xmldsig as a default namespace on `<Signature>`, which is
+      # what real IdPs emit — and is fixed upstream in crystal-saml `f91e710`,
+      # pinned here since PR #16.
       #
-      # Rewritten to assert the thing that matters (an identity is
-      # established), which correctly fails today because of two independent
-      # bugs in `crystal-saml`, both confirmed by experiment:
-      #
-      #   1. `validate_signature` serialises `SignedInfo` with
-      #      `XML::Node#to_xml`, losing the namespace it INHERITS when the IdP
-      #      declares xmldsig as a DEFAULT namespace on <Signature> (what real
-      #      IdPs emit). The canonical bytes then differ from the signer's.
-      #      Fix written, pending push access to spider-gazelle/crystal-saml.
-      #   2. `sign_document` writes its `uuid` ARGUMENT into `Reference URI`
-      #      rather than the signed element's actual ID, so `verify_digest`
-      #      can never resolve the referenced element — the library's own
-      #      sign->verify round trip has never worked.
-      #
-      # Un-pend once the shard is fixed; the assertion below is what we want.
-      pending "accepts an assertion correctly signed by the configured IdP cert" do
+      # The second reason was wrong, and the mistake is worth recording: I
+      # reported that `sign_document` writes its `uuid` argument into
+      # `Reference URI` "rather than the signed element's actual ID" and
+      # called it a library bug. `uuid` IS the caller's declaration of which
+      # ID it is signing — real callers pass the root's own `ID`. Our fixture
+      # passed `UUID.random.to_s`, so the Reference pointed at an element that
+      # did not exist. The defect was in the test, and it was masquerading as
+      # a defect in the library.
+      it "accepts an assertion correctly signed by the configured IdP cert" do
         strat = signed_strat.call(true)
         email = "saml-ok-#{Random.rand(99999)}@localhost"
         xml = Spec::SamlFixtures.signed(build.call(strat, email))
 
-        post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+        result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
 
-        # positive assertion: a genuine assertion must establish an identity
-        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should_not be_nil
+        # Positive assertion: a genuine assertion must establish an identity.
+        # Report the response when it does not, so a regression here is
+        # diagnosable from CI instead of guessed at.
+        lookup = ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?
+        if lookup.nil?
+          fail "VALID ASSERTION WAS REJECTED — status=#{result.status_code} " \
+               "location=#{result.headers["Location"]?.inspect} " \
+               "body=#{result.body[0, 200].inspect}"
+        end
+        lookup.should_not be_nil
+
+        # ...and it must not have gone down the failure path.
+        result.headers["Location"]?.try(&.includes?("/auth/failure")).should_not be_true
+      ensure
+        strat.try &.destroy
+      end
+
+      # Guards the fixture itself. If `signed` ever goes back to signing a
+      # reference the document does not contain, every rejection case below
+      # would still pass while the positive case silently became untestable.
+      it "signs against the document root's real ID" do
+        strat = signed_strat.call(true)
+        xml = build.call(strat, "saml-refid-#{Random.rand(99999)}@localhost")
+        root_id = Spec::SamlFixtures.root_id(xml)
+
+        signed_xml = Spec::SamlFixtures.signed(xml)
+
+        root_id.should_not be_empty
+        signed_xml.should contain(%(URI="##{root_id}"))
       ensure
         strat.try &.destroy
       end

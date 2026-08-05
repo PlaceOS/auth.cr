@@ -1,6 +1,7 @@
 require "base64"
 require "uuid"
 require "openssl"
+require "xml"
 require "crystal-saml"
 
 module PlaceOS::Auth::Spec
@@ -103,14 +104,36 @@ module PlaceOS::Auth::Spec
     end
 
     # Signs with the IdP key — the happy path.
+    #
+    # `sign_document`'s fourth argument is written verbatim into
+    # `<ds:Reference URI="#...">`, and it digests the whole document, so it
+    # MUST be the ID of the document root. This helper used to pass
+    # `UUID.random.to_s`, producing a signature whose Reference pointed at an
+    # element that does not exist — `verify_digest` could never resolve it, so
+    # the "correctly signed assertion" case failed and was written off as a
+    # crystal-saml bug. It is not: real callers (`auth_request.cr`,
+    # `logout_request.cr`) pass the root's own `ID`. The bug was in this
+    # fixture.
     def signed(xml : String, key : OpenSSL::PKey::RSA? = nil,
                certificate : OpenSSL::X509::Certificate? = nil) : String
       ::SAML::XMLSecurity.sign_document(
         xml,
         key || idp_key,
         certificate || idp_certificate,
-        UUID.random.to_s,
+        root_id(xml),
       )
+    end
+
+    # The `ID` of the document root, which is what a signature over the whole
+    # Response must reference. Raises rather than falling back to a random
+    # value: a fixture that silently signs the wrong reference produces a test
+    # that looks like a library failure.
+    def root_id(xml : String) : String
+      root = ::XML.parse(xml).root
+      raise "SAML fixture XML has no root element" if root.nil?
+      id = root["ID"]?
+      raise "SAML fixture root <#{root.name}> has no ID attribute" if id.nil? || id.empty?
+      id
     end
 
     # Signed by a DIFFERENT, valid keypair. The XML is well-formed and the

@@ -480,6 +480,57 @@ module PlaceOS::Auth
         cleanup_login.call(uid) if uid
         strat.try &.destroy
       end
+
+      it "refuses to land on an off-host continue after the SSO round-trip (SEC-05)" do
+        # The callback replays whatever `/auth/login` stored, so this is the
+        # one redirect target that survives an entire IdP round-trip. It is
+        # safe only because `set_continue` sanitises on *write* — nothing
+        # re-checks it on the way out at `provider_callbacks.cr:195`.
+        #
+        # `/\evil.example` is the case that mattered: browsers resolve it as
+        # scheme-relative (WHATWG treats `\` as `/` for http/https), and the
+        # guard's `//` test missed it, so a hostile continue could be parked
+        # on the session and fired after a *successful* login.
+        strat = google_urls.call("openid email", {"uid" => "sub", "email" => "email"})
+        uid = "google-eviljmp-#{Random.rand(999999)}"
+
+        WebMock.stub(:post, "https://accounts.google.com/token").to_return(
+          status: 200, headers: json_headers,
+          body: {access_token: "g-access", token_type: "Bearer", expires_in: 3600}.to_json,
+        )
+        WebMock.stub(:get, "https://openidconnect.googleapis.com/v1/userinfo").to_return(
+          status: 200, headers: json_headers,
+          body: {sub: uid, email: "eviljmp-#{Random.rand(999999)}@localhost"}.to_json,
+        )
+
+        login = client.get(
+          "/auth/login?provider=oauth2&id=#{URI.encode_www_form(strat.id.as(String))}" \
+          "&continue=#{URI.encode_www_form("/\\evil.example/x")}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        login.status_code.should eq 303
+        cookie = session_cookie.call(login, "")
+
+        kick = client.get(login.headers["Location"], headers: HTTP::Headers{
+          "Host" => "localhost", "Cookie" => cookie,
+        })
+        kick.status_code.should eq 303
+        state = URI::Params.parse(kick.headers["Location"].split('?', 2).last)["state"]
+        cookie = session_cookie.call(kick, cookie)
+
+        result = client.get(
+          "/auth/oauth2/callback?id=#{URI.encode_www_form(strat.id.as(String))}&code=g-code&state=#{state}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
+        )
+
+        # Login still succeeds — the hostile continue is dropped, not fatal.
+        result.status_code.should eq 303
+        result.headers["Location"].should eq "/"
+        result.headers["Location"].tr("\\", "/").should_not contain "evil.example"
+      ensure
+        cleanup_login.call(uid) if uid
+        strat.try &.destroy
+      end
     end
 
     describe "ensure_matching" do

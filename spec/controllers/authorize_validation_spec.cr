@@ -808,5 +808,43 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    # ---- AU-12: the authorization code's lifetime ----------------------
+
+    describe "code expiry (AU-12)" do
+      it "mints codes with the 10-minute Doorkeeper lifetime" do
+        # Doorkeeper's `authorization_code_expires_in` default is 10 minutes
+        # and the legacy service never overrode it, so a cutover must not
+        # silently shorten or lengthen the window a half-finished login has
+        # to complete in. `authly_adapter.cr` sets `config.code_ttl =
+        # 10.minutes`; this asserts the value REACHES the code rather than
+        # asserting the constant back to itself.
+        #
+        # The rejection side — an expired code refused with 400
+        # `invalid_grant` rather than a 500 — lives in
+        # `token_disclosure_spec.cr`.
+        ::Authly.config.code_ttl.should eq 10.minutes
+
+        redirect = "https://au12.example/cb-#{Random.rand(999_999)}"
+        user, password = make_user.call
+        app = make_app.call(redirect)
+        cookie = Spec.signin!(client, user, password)
+
+        result = authorize.call(cookie, {
+          "response_type" => "code",
+          "client_id"     => app.uid.as(String),
+          "redirect_uri"  => redirect,
+          "scope"         => "public",
+        })
+        result.status_code.should eq 302
+        code = URI::Params.parse(result.headers["Location"].split('?', 2).last)["code"]
+
+        payload, _ = JWT.decode(code, ::Authly.config.public_key.as(String), JWT::Algorithm::RS256)
+        (payload["exp"].as_i64 - payload["iat"].as_i64).should eq 600
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

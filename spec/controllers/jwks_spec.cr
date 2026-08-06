@@ -1,4 +1,5 @@
 require "../helper"
+require "base64"
 
 module PlaceOS::Auth
   # JWKS parity for the Doorkeeper-openid_connect mount (PPT-2536).
@@ -31,6 +32,64 @@ module PlaceOS::Auth
       # DER sign-padding byte leaking through.
       n.size.should eq 342
       n.should_not start_with "A" # a leading zero byte would encode as "A..."
+    end
+
+    # ---- OI-11: does a token point at the key that signed it? ----------
+
+    it "issues tokens whose header carries no kid (OI-11 — DIVERGENCE)" do
+      # An RP validating our tokens fetches the JWKS and has to pick a key.
+      # The standard way is `kid`: OIDC Core §10.1 says the header SHOULD
+      # carry one when the JWKS publishes more than one key, and most
+      # libraries look for it unconditionally.
+      #
+      # `Authly.jwt_encode` is `JWT.encode(payload, key, alg)`, which emits
+      # `{"alg":"RS256","typ":"JWT"}` and nothing else, so our tokens name no
+      # key at all. It works today only because the JWKS publishes exactly
+      # ONE key and every sane library falls back to "try the only one".
+      #
+      # Two things make this worth pinning rather than shrugging at. It is a
+      # latent blocker on key rotation: the moment the JWKS holds two keys, a
+      # kid-less token is ambiguous and strict RPs reject it — so rotation
+      # needs this fixed FIRST, not during. And it is the same class as the
+      # missing `nonce` (OI-04): fine for PlaceOS's own clients, a surprise
+      # for anyone integrating a conformant RP.
+      app = ::PlaceOS::Model::DoorkeeperApplication.new
+      app.name = "jwks-kid-#{Random.rand(999_999)}"
+      app.redirect_uri = "https://jwks.example/cb-#{Random.rand(999_999)}"
+      app.scopes = "public"
+      app.confidential = true
+      app.owner_id = "authority-owner"
+      app.save!
+
+      issued = client.post("/auth/token",
+        headers: HTTP::Headers{
+          "Host" => "localhost", "Content-Type" => "application/x-www-form-urlencoded",
+        },
+        body: URI::Params.build { |fp|
+          fp.add("grant_type", "client_credentials")
+          fp.add("client_id", app.uid.as(String))
+          fp.add("client_secret", app.secret)
+          fp.add("scope", "public")
+        })
+      issued.status_code.should eq 200
+      access = JSON.parse(issued.body)["access_token"].as_s
+
+      # Decode the JOSE header without verifying — that is exactly what an
+      # RP does before it knows which key to verify with.
+      header = JSON.parse(String.new(Base64.decode(access.split('.').first + "==")))
+      header["alg"].as_s.should eq "RS256"
+      header["typ"].as_s.should eq "JWT"
+      header.as_h.has_key?("kid").should be_false
+
+      # The key it WOULD have named, and the reason a fallback works today:
+      # there is exactly one.
+      keys = JSON.parse(
+        client.get("/auth/oauth/discovery/keys", headers: HTTP::Headers{"Host" => "localhost"}).body
+      )["keys"].as_a
+      keys.size.should eq 1
+      keys.first["kid"].as_s.should_not be_empty
+    ensure
+      app.try &.destroy
     end
   end
 end

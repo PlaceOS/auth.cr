@@ -251,5 +251,137 @@ module PlaceOS::Auth
       app.try &.destroy
       user.try &.destroy
     end
+
+    # ---- PK-05 / PK-06 / OI-09: which methods are really accepted ------
+    #
+    # Discovery advertises `code_challenge_methods_supported: ["S256"]`
+    # (`oauth.cr`, Discovery::Response). A capability document is a promise
+    # about what the server does, so what it *actually* accepts had better
+    # match — and the challenge method is not a detail: with `plain`, the
+    # challenge and the verifier are the same string, and the challenge
+    # travels in the authorize URL. Anything that reads that URL — nginx's
+    # access log, the browser's history, a `Referer` — holds the verifier.
+    # That is precisely why RFC 7636 §7.2 tells a server supporting S256 to
+    # refuse `plain`.
+    describe "code_challenge_method handling (PK-05, PK-06, OI-09)" do
+      authorize_with = ->(app : ::PlaceOS::Model::DoorkeeperApplication, redirect : String, cookie : String, challenge : String, method : String) {
+        query = String.build do |io|
+          io << "/auth/authorize?response_type=code"
+          io << "&client_id=" << URI.encode_www_form(app.uid.as(String))
+          io << "&redirect_uri=" << URI.encode_www_form(redirect)
+          io << "&scope=public"
+          io << "&code_challenge=" << URI.encode_www_form(challenge)
+          io << "&code_challenge_method=" << URI.encode_www_form(method)
+        end
+        client.get(query, headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie})
+      }
+
+      exchange = ->(app : ::PlaceOS::Model::DoorkeeperApplication, redirect : String, code : String, verifier : String) {
+        client.post("/auth/token",
+          headers: HTTP::Headers{
+            "Host" => "localhost", "Content-Type" => "application/x-www-form-urlencoded",
+          },
+          body: URI::Params.build { |fp|
+            fp.add("grant_type", "authorization_code")
+            fp.add("client_id", app.uid.as(String))
+            fp.add("client_secret", app.secret)
+            fp.add("code", code)
+            fp.add("redirect_uri", redirect)
+            fp.add("code_verifier", verifier)
+          })
+      }
+
+      it "advertises S256 as the only supported method" do
+        result = client.get("/.well-known/openid-configuration",
+          headers: HTTP::Headers{"Host" => "localhost"})
+        result.status_code.should eq 200
+        JSON.parse(result.body)["code_challenge_methods_supported"]
+          .as_a.map(&.as_s).should eq ["S256"]
+      end
+
+      it "accepts a `plain` challenge anyway (PK-05 — DIVERGENCE from the advertised set)" do
+        # The advertised set says S256 only; the implementation takes `plain`
+        # too. `normalize_code_challenge` deliberately transforms S256 alone
+        # and passes every other method through untouched, and authly then
+        # compares the verifier verbatim.
+        #
+        # Not currently exploitable across clients: the method is baked into
+        # the code at authorize time, so an attacker cannot downgrade a
+        # *legitimate* client's code — the client picks its own method. The
+        # exposure is that a naive or hostile client can opt itself into a
+        # scheme where the authorize URL carries its own proof of possession,
+        # while discovery tells integrators that cannot happen.
+        redirect = "https://spa.example/cb-plain-#{Random.rand(99999)}"
+        user, app, password = make_app.call(redirect)
+        cookie = Spec.signin!(client, user, password)
+        verifier = "plain-verifier-#{Random.rand(999_999)}"
+
+        authorized = authorize_with.call(app, redirect, cookie, verifier, "plain")
+        authorized.status_code.should eq 302
+        code = URI::Params.parse(authorized.headers["Location"].split('?', 2).last)["code"]
+
+        token = exchange.call(app, redirect, code, verifier)
+        token.status_code.should eq 200
+        JSON.parse(token.body)["access_token"].as_s.should_not be_empty
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "still checks a `plain` challenge against the verifier" do
+        # The control for the case above: `plain` is accepted, but it is not
+        # a no-op — a wrong verifier is still refused. Without this, the
+        # test above would equally describe a build that ignored PKCE.
+        redirect = "https://spa.example/cb-plainbad-#{Random.rand(99999)}"
+        user, app, password = make_app.call(redirect)
+        cookie = Spec.signin!(client, user, password)
+
+        authorized = authorize_with.call(app, redirect, cookie, "the-real-verifier", "plain")
+        authorized.status_code.should eq 302
+        code = URI::Params.parse(authorized.headers["Location"].split('?', 2).last)["code"]
+
+        token = exchange.call(app, redirect, code, "not-the-verifier")
+        token.status_code.should_not eq 200
+        JSON.parse(token.body)["error"].as_s.should_not be_empty
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "mints an unredeemable code for an unknown method (PK-06)" do
+        # RFC 7636 §4.3 makes `code_challenge_method` a value the server must
+        # understand, and §4.4.1 says an unsupported one should be rejected
+        # at the AUTHORIZE endpoint with `invalid_request`. auth.cr passes it
+        # through instead: `normalize_code_challenge` transforms S256 alone,
+        # every other method is stored verbatim, and the code is minted.
+        #
+        # It fails CLOSED, which is the part that matters — the exchange is
+        # refused, so an unknown method can never weaken the check. What it
+        # costs is diagnosability: the client gets a 302 and a code that
+        # looks fine, then a 401 `unauthorized_client` one round trip later.
+        # That code says "this client may not use this grant type", which
+        # sends an integrator to their client registration when the actual
+        # problem is one query parameter they chose. Same misdirection class
+        # as the boot-time `oauth_tokens` check (XO-03) and the undecodable
+        # -grant 500 — pinned here so the cost is visible if anyone decides
+        # to move the rejection to the authorize endpoint where it belongs.
+        redirect = "https://spa.example/cb-s512-#{Random.rand(99999)}"
+        user, app, password = make_app.call(redirect)
+        cookie = Spec.signin!(client, user, password)
+        verifier = "s512-verifier-#{Random.rand(999_999)}"
+
+        authorized = authorize_with.call(app, redirect, cookie, verifier, "S512")
+        # Accepted here — this is the part RFC 7636 says should have failed.
+        authorized.status_code.should eq 302
+        code = URI::Params.parse(authorized.headers["Location"].split('?', 2).last)["code"]
+
+        token = exchange.call(app, redirect, code, verifier)
+        token.status_code.should eq 401
+        JSON.parse(token.body)["error"].as_s.should eq "unauthorized_client"
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

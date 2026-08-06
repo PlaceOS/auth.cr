@@ -275,6 +275,54 @@ module PlaceOS::Auth
       end
     end
 
+    # ---- SC-09: per-authority session timeout ---------------------------
+
+    describe "per-authority session timeout (SC-09)" do
+      it "honours internals.session_timeout over the env default" do
+        # `authority_session_timeout` reads `Authority#internals`
+        # ["session_timeout"] and falls back to `SESSION_TIMEOUT_MINUTES`.
+        # A tenant that sets a shorter window is making a security decision,
+        # so the override actually being read is the whole point of the row.
+        #
+        # Driving it with a NEGATIVE window is what makes this observable in
+        # a spec: the session's `exp` is inside the encrypted cookie and
+        # cannot be read from outside, but a session that was already expired
+        # when it was issued shows up immediately as `session: false`, while
+        # the same signin under the default shows `session: true`.
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        original = authority.internals.dup
+        password = "ok-password-1234"
+        user = create_user.call(password)
+
+        # Control first, under the default timeout.
+        cookie = Spec.signin!(client, user, password)
+        live = client.get("/auth/authority", headers: HTTP::Headers{
+          "Host" => "localhost", "Cookie" => cookie,
+        })
+        JSON.parse(live.body)["session"].as_bool.should be_true
+
+        authority.internals = authority.internals.merge({
+          "session_timeout" => JSON::Any.new(-1_i64),
+        })
+        authority.save!
+
+        expired_cookie = Spec.signin!(client, user, password)
+        result = client.get("/auth/authority", headers: HTTP::Headers{
+          "Host" => "localhost", "Cookie" => expired_cookie,
+        })
+
+        result.status_code.should eq 200
+        # Issued and already past its window — the override was read.
+        JSON.parse(result.body)["session"].as_bool.should be_false
+      ensure
+        if authority
+          authority.internals = original || {} of String => JSON::Any
+          authority.save!
+        end
+        user.try &.destroy
+      end
+    end
+
     describe "GET /auth/login" do
       it "redirects to the authority's login_url with {{url}} substituted" do
         authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!

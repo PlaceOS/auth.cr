@@ -84,6 +84,31 @@ module PlaceOS::Auth
         user.try &.destroy
       end
 
+      it "bounces an unauthenticated caller to login rather than denying (AU-07)" do
+        # The deny path is gated on the session exactly like the grant path.
+        # It matters that it BOUNCES rather than emitting `access_denied`: an
+        # unauthenticated deny that redirected to the client would let anyone
+        # who can reach the endpoint fabricate a user's refusal, and the
+        # client would take it as a decision the user made.
+        user, password, app = make_app.call
+        query = "redirect_uri=#{URI.encode_www_form(app.redirect_uri.as(String))}" \
+                "&client_id=#{URI.encode_www_form(app.uid.as(String))}&response_type=code&state=abc"
+
+        result = client.delete("/auth/oauth/authorize?#{query}",
+          headers: HTTP::Headers{"Host" => "localhost"})
+
+        result.status_code.should eq 303
+        location = result.headers["Location"]
+        location.should eq "/auth/login"
+        # Nothing reached the client — no decision was invented on the
+        # user's behalf.
+        location.should_not contain "access_denied"
+        location.should_not start_with app.redirect_uri.as(String)
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
       it "refuses to redirect to a URI not registered for the client (no open redirect)" do
         user, password, app = make_app.call
         cookie = Spec.signin!(client, user, password)

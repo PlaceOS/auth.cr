@@ -78,9 +78,17 @@ module PlaceOS::Auth
     class OAuthUnauthorized < OAuthError
     end
 
+    # RFC 6749 §5.1 / Doorkeeper's `OAuth::TokenResponse#headers`, verbatim.
+    # Applied to token responses and to the OAuth error envelopes (an error
+    # body can carry a `error_description` naming why a credential failed).
+    protected def no_store! : Nil
+      response.headers["Cache-Control"] = "no-store, no-cache"
+      response.headers["Pragma"] = "no-cache"
+    end
+
     @[AC::Route::Exception(OAuthBadRequest, status_code: HTTP::Status::BAD_REQUEST)]
     def oauth_bad_request(error) : ErrorResponse
-      response.headers["Cache-Control"] = "no-store"
+      no_store!
       ErrorResponse.new(error.error_code, error.message)
     end
 
@@ -88,7 +96,7 @@ module PlaceOS::Auth
     def oauth_unauthorized(error) : ErrorResponse
       # RFC 6750 §3 auth challenge, as Doorkeeper emitted on its 401s.
       response.headers["WWW-Authenticate"] = %(Bearer realm="Doorkeeper", error="#{error.error_code}")
-      response.headers["Cache-Control"] = "no-store"
+      no_store!
       ErrorResponse.new(error.error_code, error.message)
     end
 
@@ -182,11 +190,41 @@ module PlaceOS::Auth
                        raise OAuthBadRequest.new("unsupported_grant_type", "grant_type=#{grant_type}")
                      end
 
+      # RFC 6749 §5.1: a response carrying tokens MUST be `Cache-Control:
+      # no-store` + `Pragma: no-cache`. Doorkeeper set both on every token
+      # response (`OAuth::TokenResponse#headers` — "no-store, no-cache" and
+      # "no-cache"); we set them on the OAuth *error* paths but not here, on
+      # the one response that actually contains the credentials. Anything
+      # between auth and the client — a corporate proxy, a service worker,
+      # the browser's own back/forward cache — was free to retain a live
+      # access + refresh token pair.
+      no_store!
       TokenResponse.new(access_token)
     rescue ex : ::Authly::Error(400)
       translate_authly_error(ex)
     rescue ex : ::Authly::Error(401)
       translate_authly_error(ex)
+    rescue ex : ::JWT::Error
+      # authly decodes the submitted `code` as a JWT with no guard around it
+      # (`Grant#scope` -> `auth_code` -> `jwt_decode`, and `validate_scope!`
+      # runs before `authorized?` gets to reject anything), so any `code`
+      # that is not a currently-valid token signed by us raised straight out
+      # of the controller instead of becoming an OAuth error.
+      #
+      # Three ways real traffic lands here: scanner junk on the documented
+      # `/auth/oauth/token` path; a code past its 10-minute expiry, which is
+      # simply a user who left the tab and came back; and — the one that
+      # matters for the cutover — a browser mid-login across the swap
+      # posting a *Doorkeeper* code, which is an opaque random string and
+      # not a JWT at all.
+      #
+      # Unhandled, that reached `ActionController::ErrorHandler` as a 500
+      # with a stack trace attached (`SG_ENV` is unset in the real deploy,
+      # so backtraces are on — CFG-02). Doorkeeper answered 400
+      # `invalid_grant`, which is also what RFC 6749 §5.2 specifies for a
+      # code that is invalid, expired, or was issued to another client.
+      Log.info(exception: ex) { {message: "rejected an undecodable grant", action: "token", grant_type: grant_type} }
+      raise OAuthBadRequest.new("invalid_grant", "the grant is invalid, expired, or was not issued by this server")
     end
 
     # --- GET|POST /auth/authorize -----------------------------------------

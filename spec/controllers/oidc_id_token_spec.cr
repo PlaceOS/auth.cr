@@ -536,5 +536,84 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    # ---- OI-05 / OI-06: the userinfo endpoint ---------------------------
+
+    describe "userinfo (OI-05, OI-06)" do
+      it "answers GET and POST identically, with a sub matching the id_token" do
+        # OIDC Core §5.3 requires both verbs, and §5.3.2 requires the
+        # `sub` returned here to match the `sub` of the ID token issued in
+        # the same grant. An RP that keys its user records off userinfo
+        # while validating the ID token separately breaks silently if the
+        # two ever disagree — `discovery_spec.cr` proves both verbs are
+        # ROUTED; this proves they agree, and with what.
+        user, app, _redirect, token = authorize_and_exchange.call("openid public")
+        access = token["access_token"].as_s
+        id_payload, _ = JWT.decode(token["id_token"].as_s,
+          ::Authly.config.public_key.as(String), JWT::Algorithm::RS256)
+
+        headers = HTTP::Headers{"Host" => "localhost", "Authorization" => "Bearer #{access}"}
+        via_get = client.get("/auth/userinfo", headers: headers)
+        via_post = client.post("/auth/userinfo", headers: headers)
+
+        via_get.status_code.should eq 200
+        via_post.status_code.should eq 200
+        JSON.parse(via_get.body).should eq JSON.parse(via_post.body)
+
+        subject = JSON.parse(via_get.body)["sub"].as_s
+        subject.should eq user.id.as(String)
+        subject.should eq id_payload["sub"].as_s
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "404s with an empty error once the user behind the token is gone (OI-05 — DIVERGENCE)" do
+        # A token can outlive its user: a deletion, or a tenant teardown,
+        # inside the 2-hour access-token window. What comes back is
+        # `404 {"error":""}`.
+        #
+        # Why 404 and not the `unknown subject` 401 the code appears to
+        # intend: `authorize!` calls `::PlaceOS::Model::User.find(...)`,
+        # which RAISES `PgORM::Error::RecordNotFound` rather than returning
+        # nil. That escapes the `rescue e : JWT::Error` around it and lands
+        # on the base controller's RecordNotFound handler — so
+        # `OAuth#userinfo`'s own `raise Error::Unauthorized.new("unknown
+        # subject")` guard is never reached by this route. (It still covers
+        # the guest-scope path, which skips the user lookup entirely.)
+        #
+        # Two problems, both diagnosability rather than security. RFC 6750
+        # §3.1 and OIDC Core §5.3.3 want 401 `invalid_token` here — an RP
+        # reading 404 concludes the *endpoint* is missing and may disable
+        # userinfo entirely, rather than refreshing the token. And the body
+        # carries `{"error":""}`, because `RecordNotFound` is raised with no
+        # message, so nothing in the response says what was not found.
+        #
+        # Pinned rather than fixed: changing it means either making
+        # `authorize!` tolerate the missing row (which is a real semantic
+        # decision about whether a userless token is authenticated at all)
+        # or catching RecordNotFound per-controller. Worth doing
+        # deliberately, with the guest-scope path considered alongside.
+        user, app, _redirect, token = authorize_and_exchange.call("openid public")
+        access = token["access_token"].as_s
+        headers = HTTP::Headers{"Host" => "localhost", "Authorization" => "Bearer #{access}"}
+
+        # Control: it works while the user exists, so the change below is
+        # attributable to the deletion and nothing else.
+        client.get("/auth/userinfo", headers: headers).status_code.should eq 200
+
+        user.destroy
+        user = nil
+
+        result = client.get("/auth/userinfo", headers: headers)
+        result.status_code.should eq 404
+        JSON.parse(result.body)["error"].as_s.should be_empty
+        # Whatever else changes, no claims may leak for a user that is gone.
+        result.body.should_not contain "\"sub\""
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

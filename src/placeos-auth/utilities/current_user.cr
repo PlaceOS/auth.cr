@@ -28,12 +28,25 @@ module PlaceOS::Auth
       if api_key_token = extract_api_key
         begin
           api_key = ::PlaceOS::Model::ApiKey.find_key!(api_key_token)
+          # `find_key!` only proves the secret matches the digest — it never
+          # looks at `expires_at`. Without this check an expired key still
+          # authenticated, and `build_jwt` stamps `exp: 1.hour.from_now`
+          # unconditionally, so every call renewed itself: the expiry a
+          # `ttl` was created to enforce never arrived. rest-api rejects the
+          # same key here (`current-user.cr`), so the two services disagreed
+          # about whether a credential was still live.
+          raise Error::Unauthorized.new "API key has expired" if api_key.expired?
           user_token = api_key.build_jwt
           Log.context.set(api_key_id: api_key.id, api_key_name: api_key.name)
           ensure_matching_domain(user_token)
           @user_token = user_token
           @current_user = ::PlaceOS::Model::User.find(user_token.id)
           return user_token
+        rescue e : Error::Unauthorized
+          # The expiry check and `ensure_matching_domain` already raise with
+          # the precise reason; the catch-all below would flatten both into
+          # "unknown X-API-Key" and misdirect whoever reads the log.
+          raise e
         rescue e
           Log.warn(exception: e) { {message: "bad or unknown X-API-Key", action: "authorize!"} }
           raise Error::Unauthorized.new "unknown X-API-Key"

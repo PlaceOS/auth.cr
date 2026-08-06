@@ -158,8 +158,17 @@ module PlaceOS::Auth
     #     `path?query#fragment`
     #   * anything else → `nil`, leaving the caller free to pick a
     #     fallback (typically `authority.logout_url` or `"/"`)
+    #
+    # The `//` test is done on a backslash-normalised copy. WHATWG URL
+    # parsing treats `\` exactly like `/` while resolving a *special*
+    # (http/https) URL — "relative slash state": if c is U+002F or U+005C,
+    # go to special authority ignore slashes state. So a browser reads
+    # `Location: /\evil.com` as `//evil.com`, i.e. scheme-relative, and
+    # navigates off-site. Checking the raw string let `/\evil.com` and
+    # `/\/evil.com` through as "safe relative paths" — an open redirect
+    # that walked straight past the `//` guard this method exists to be.
     def sanitize_continue(path : String) : String?
-      check_path = path.split('?', 2)[0]
+      check_path = path.split('?', 2)[0].tr("\\", "/")
       return path if check_path.starts_with?('/') && !check_path.includes?("//")
 
       uri = URI.parse(path)

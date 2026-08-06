@@ -460,5 +460,81 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    # ---- OI-04: nonce ---------------------------------------------------
+
+    describe "nonce is not supported (OI-04)" do
+      it "drops a nonce sent to the authorize endpoint instead of echoing it" do
+        # OIDC Core §3.1.2.1 makes `nonce` OPTIONAL for the code flow, and
+        # §3.1.3.7 step 11 says that if the client sent one, it MUST verify
+        # the same value comes back in the ID token. auth.cr never captures
+        # it: `/auth/authorize` has no `nonce` parameter, `Authly::Code`
+        # has no field for it, and `AuthlyAdapter::Owner#id_token` never
+        # emits one (there is a comment saying as much).
+        #
+        # The consequence is a real interop limit, not a cosmetic gap: an RP
+        # library that sends `nonce` by default — most do, even on the code
+        # flow — will reject our ID token as tampered. It is a *safe*
+        # failure (login refused, never wrongly accepted), and no PlaceOS
+        # client sends one today, which is why it has never been noticed.
+        # Pinned so that anyone integrating an external RP finds this here
+        # rather than in a support ticket, and so an implementation lands
+        # with a test already waiting for it.
+        user, app, redirect, cookie, password = nil, nil, nil, nil, nil
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        user = ::PlaceOS::Model::Generator.user(authority)
+        password = "bcrypt-please-#{Random.rand(99999)}"
+        user.password = password
+        user.save!
+
+        redirect = "https://oidc.example/cb/#{UUID.random}"
+        app = ::PlaceOS::Model::DoorkeeperApplication.new
+        app.name = "oidc-nonce-#{Random.rand(99999)}"
+        app.redirect_uri = redirect
+        app.scopes = "openid public"
+        app.owner_id = user.id.as(String)
+        app.confidential = true
+        app.save!
+
+        cookie = Spec.signin!(client, user, password)
+        the_nonce = "nonce-#{Random.rand(999_999_999)}"
+        authorized = client.get(
+          "/auth/oauth/authorize?response_type=code" \
+          "&client_id=#{URI.encode_www_form(app.uid.as(String))}" \
+          "&redirect_uri=#{URI.encode_www_form(redirect)}" \
+          "&scope=#{URI.encode_www_form("openid public")}" \
+          "&nonce=#{URI.encode_www_form(the_nonce)}",
+          headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
+        )
+
+        # An unknown parameter must not break the flow — the login still
+        # works, which is exactly why the missing claim is easy to miss.
+        authorized.status_code.should eq 302
+        code = URI::Params.parse(authorized.headers["Location"].split('?', 2).last)["code"]
+
+        token = form_post.call("/auth/token", {
+          "grant_type"    => "authorization_code",
+          "client_id"     => app.uid.as(String),
+          "client_secret" => app.secret,
+          "code"          => code,
+          "redirect_uri"  => redirect,
+        })
+        token.status_code.should eq 200
+
+        id_token = JSON.parse(token.body)["id_token"].as_s
+        id_token.should_not be_empty
+        payload, _ = JWT.decode(id_token, ::Authly.config.public_key.as(String), JWT::Algorithm::RS256)
+
+        # The claim an OIDC-conformant RP would check, and its absence.
+        payload.as_h.has_key?("nonce").should be_false
+        # Positive control: the ID token IS otherwise well-formed, so this is
+        # a missing claim and not a broken flow.
+        payload["sub"].as_s.should eq user.id.as(String)
+        payload["aud"].as_s.should eq app.uid.as(String)
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

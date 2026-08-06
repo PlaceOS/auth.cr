@@ -359,5 +359,168 @@ module PlaceOS::Auth
         user.try &.destroy
       end
     end
+
+    # ---- RF-10: a refresh may narrow the grant, never widen it ---------
+    #
+    # RFC 6749 §6: "The requested scope MUST NOT include any scope not
+    # originally granted by the resource owner." Doorkeeper enforced exactly
+    # that — `RefreshTokenRequest#validate_scope` checks the requested scope
+    # against `refresh_token.scopes`, the scope the grant actually carried.
+    #
+    # authly checks the requested scope against the CLIENT REGISTRATION only
+    # (`Authly.clients.allowed_scopes?`), which is a different question: it
+    # asks "may this client ever hold this scope", not "was this scope
+    # granted to this token". A client registered for more than it was
+    # granted could therefore widen its own token on refresh.
+    describe "scope narrowing and widening (RF-10)" do
+      # A client REGISTERED for two scopes, whose user grants only one.
+      # That gap is the whole point: it is where widening becomes visible.
+      two_scope_grant = ->(granted : String) {
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        password = "bcrypt-please-#{Random.rand(999_999)}"
+        user = ::PlaceOS::Model::Generator.user(authority)
+        user.password = password
+        user.save!
+
+        redirect = "https://rf10.example/cb-#{Random.rand(999_999)}"
+        app = ::PlaceOS::Model::DoorkeeperApplication.new
+        app.name = "rf10-#{Random.rand(999_999)}"
+        app.redirect_uri = redirect
+        app.scopes = "public users"
+        app.confidential = true
+        app.owner_id = user.id.as(String)
+        app.save!
+
+        cookie = Spec.signin!(client, user, password)
+        authorize_path = String.build do |io|
+          io << "/auth/authorize?response_type=code"
+          io << "&client_id=" << URI.encode_www_form(app.uid.as(String))
+          io << "&redirect_uri=" << URI.encode_www_form(redirect)
+          io << "&scope=" << URI.encode_www_form(granted)
+        end
+        authorized = client.get(authorize_path, headers: HTTP::Headers{
+          "Host" => "localhost", "Cookie" => cookie,
+        })
+        authorized.status_code.should eq 302
+        code = URI::Params.parse(authorized.headers["Location"].split('?', 2).last)["code"]
+
+        exchanged = client.post("/auth/token", headers: form_headers, body: URI::Params.build { |fp|
+          fp.add("grant_type", "authorization_code")
+          fp.add("client_id", app.uid.as(String))
+          fp.add("client_secret", app.secret)
+          fp.add("code", code)
+          fp.add("redirect_uri", redirect)
+        })
+        exchanged.status_code.should eq 200
+        body = JSON.parse(exchanged.body)
+        # The grant really is narrower than the registration.
+        scopes_of.call(decode.call(body["access_token"].as_s)).should eq granted.split
+        {user, app, body["refresh_token"].as_s}
+      }
+
+      refresh_asking = ->(app : ::PlaceOS::Model::DoorkeeperApplication, token : String, scope : String) {
+        client.post("/auth/token", headers: form_headers, body: URI::Params.build { |fp|
+          fp.add("grant_type", "refresh_token")
+          fp.add("client_id", app.uid.as(String))
+          fp.add("client_secret", app.secret)
+          fp.add("refresh_token", token)
+          fp.add("scope", scope)
+        })
+      }
+
+      it "does NOT widen the grant when the refresh asks for more" do
+        # The security-relevant half. Granted `public`, registered for
+        # `public users`, asking for `users` back.
+        user, app, refresh_token = two_scope_grant.call("public")
+
+        result = refresh_asking.call(app, refresh_token, "public users")
+
+        # Accepted — but the token that comes back carries the GRANTED
+        # scope, not the requested one. No escalation.
+        result.status_code.should eq 200
+        claims = decode.call(JSON.parse(result.body)["access_token"].as_s)
+        scopes_of.call(claims).should eq ["public"]
+        scopes_of.call(claims).should_not contain "users"
+        claims["sub"].as_s.should eq user.id.as(String)
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "does NOT widen even when the extra scope is the only one asked for" do
+        user, app, refresh_token = two_scope_grant.call("public")
+
+        result = refresh_asking.call(app, refresh_token, "users")
+
+        result.status_code.should eq 200
+        scopes_of.call(decode.call(JSON.parse(result.body)["access_token"].as_s)).should eq ["public"]
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "does NOT narrow either — the scope parameter is ignored on refresh (DIVERGENCE)" do
+        # RFC 6749 §6 lets a client refresh into a NARROWER scope, and
+        # Doorkeeper honoured it (`RefreshTokenRequest#validate_scope`
+        # checks the request against `refresh_token.scopes`). auth.cr honours
+        # neither direction, for one reason: `oauth.cr`'s refresh branch
+        # calls `Authly.access_token(grant_type:, client_id:, client_secret:,
+        # refresh_token:)` and never forwards `scope`, so `Grant#@scope` is
+        # nil and `Grant#scope` falls through to the scope recovered from the
+        # refresh token.
+        #
+        # Pinned rather than fixed, deliberately. The current behaviour errs
+        # SAFE — a client can never gain a scope it was not granted. Making
+        # narrowing work means forwarding the parameter, and at that point
+        # `validate_scope!` only checks the CLIENT REGISTRATION
+        # (`Authly.clients.allowed_scopes?`), which asks "may this client ever
+        # hold this scope", not "was it granted to this token". Forwarding it
+        # without also adding a granted-scope subset check would convert this
+        # safe divergence into a real privilege escalation. That is a change
+        # worth making deliberately, not as a side effect.
+        user, app, refresh_token = two_scope_grant.call("public users")
+
+        result = refresh_asking.call(app, refresh_token, "public")
+
+        result.status_code.should eq 200
+        # Asked for `public`, handed back `public users`.
+        scopes_of.call(decode.call(JSON.parse(result.body)["access_token"].as_s)).should eq ["public", "users"]
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "returns exactly the granted scope when the refresh asks for it" do
+        user, app, refresh_token = two_scope_grant.call("public users")
+
+        result = refresh_asking.call(app, refresh_token, "public users")
+
+        result.status_code.should eq 200
+        scopes_of.call(decode.call(JSON.parse(result.body)["access_token"].as_s)).should eq ["public", "users"]
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+
+      it "still carries the granted scope when the refresh asks for nothing" do
+        # The existing behaviour the scope-recovery patch exists to protect
+        # (the 2026-07-25 revert). Asserted here too so a narrowing check
+        # cannot regress it into an empty scope.
+        user, app, refresh_token = two_scope_grant.call("public users")
+
+        result = client.post("/auth/token", headers: form_headers, body: URI::Params.build { |fp|
+          fp.add("grant_type", "refresh_token")
+          fp.add("client_id", app.uid.as(String))
+          fp.add("client_secret", app.secret)
+          fp.add("refresh_token", refresh_token)
+        })
+
+        result.status_code.should eq 200
+        scopes_of.call(decode.call(JSON.parse(result.body)["access_token"].as_s)).should eq ["public", "users"]
+      ensure
+        app.try &.destroy
+        user.try &.destroy
+      end
+    end
   end
 end

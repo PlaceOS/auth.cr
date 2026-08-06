@@ -326,5 +326,210 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
     end
+
+    # ---- ID-04: what the Conditions actually buy us --------------------
+    #
+    # A SAML assertion is a *bearer* credential: anyone holding the bytes can
+    # present them. Everything that stops a captured assertion being reused
+    # lives in `Conditions` and the surrounding envelope, and every one of
+    # those checks in `crystal-saml` is guarded by a "skip if not configured"
+    # clause. So which of them are live depends entirely on what
+    # `external_providers.cr#build_saml` passes — this block pins that, both
+    # where it holds and where it does not.
+    #
+    # Matters directly for UCLA, which is a SAML/Shibboleth deployment.
+    describe "assertion conditions (ID-04)", tags: "saml-conditions" do
+      acs = "http://localhost/auth/adfs/callback"
+
+      strat_with_cert = -> {
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        strat = ::PlaceOS::Model::SamlAuthentication.new
+        strat.name = "cond-saml-#{Random.rand(99999)}"
+        strat.issuer = "https://sp.example.test/cond-#{Random.rand(99999)}"
+        strat.idp_sso_target_url = "https://idp.example.test/sso"
+        strat.assertion_consumer_service_url = acs
+        strat.uid_attribute = "email"
+        strat.idp_cert = Spec::SamlFixtures.idp_cert_pem
+        strat.authority_id = authority.id
+        strat.save!
+        strat
+      }
+
+      post_assertion = ->(strat : ::PlaceOS::Model::SamlAuthentication, saml_response : String) {
+        client.post(
+          "/auth/adfs/callback?id=#{URI.encode_www_form(strat.id.as(String))}",
+          headers: HTTP::Headers{
+            "Host"         => "localhost",
+            "Content-Type" => "application/x-www-form-urlencoded",
+          },
+          body: "SAMLResponse=#{URI.encode_www_form(saml_response)}&RelayState=#{URI.encode_www_form("/backoffice/")}",
+        )
+      }
+
+      lookup_for = ->(email : String) {
+        ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?
+      }
+
+      refused = ->(result : HTTP::Client::Response, email : String) {
+        lookup = lookup_for.call(email)
+        location = result.headers["Location"]?
+        rejected = result.status_code >= 400 || location.try(&.includes?("/auth/failure")) || false
+        if lookup || !rejected
+          fail "ASSERTION WAS NOT REJECTED — status=#{result.status_code} " \
+               "location=#{location.inspect} lookup_created=#{!lookup.nil?} " \
+               "body=#{result.body[0, 200].inspect}"
+        end
+      }
+
+      admitted = ->(result : HTTP::Client::Response, email : String) {
+        lookup = lookup_for.call(email)
+        if lookup.nil?
+          fail "ASSERTION WAS NOT ACCEPTED — status=#{result.status_code} " \
+               "location=#{result.headers["Location"]?.inspect} body=#{result.body[0, 200].inspect}"
+        end
+        lookup.not_nil!
+      }
+
+      cleanup = ->(email : String) {
+        if lookup = lookup_for.call(email)
+          if user_id = lookup.user_id
+            ::PlaceOS::Model::User.find?(user_id).try &.destroy
+          end
+          lookup.destroy
+        end
+      }
+
+      # The control for the whole block. Without it, a build that refused
+      # every assertion would pass all the rejection cases below.
+      it "admits an assertion inside its validity window" do
+        strat = strat_with_cert.call
+        email = "saml-cond-ok-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: acs, audience: strat.issuer.as(String), email: email,
+          not_before: 5.minutes.ago, not_on_or_after: 30.minutes.from_now))
+
+        admitted.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      it "refuses an assertion whose NotOnOrAfter has passed" do
+        # This is the ONLY thing bounding replay of a captured assertion —
+        # see the one-time-use case at the end of this block.
+        strat = strat_with_cert.call
+        email = "saml-cond-exp-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: acs, audience: strat.issuer.as(String), email: email,
+          not_before: 2.hours.ago, not_on_or_after: 1.hour.ago))
+
+        refused.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      it "refuses an assertion that is not valid yet (NotBefore in the future)" do
+        strat = strat_with_cert.call
+        email = "saml-cond-early-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: acs, audience: strat.issuer.as(String), email: email,
+          not_before: 1.hour.from_now, not_on_or_after: 2.hours.from_now))
+
+        refused.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      it "refuses an assertion minted for a different Service Provider" do
+        # `validate_audience` compares against `settings.sp_entity_id`, which
+        # `build_saml` sets from `strat.issuer`. If that were ever left blank
+        # the check short-circuits to `true` and any assertion the IdP issued
+        # for ANY service protected by the same IdP would log the bearer in
+        # here. This is the assertion that catches that.
+        strat = strat_with_cert.call
+        email = "saml-cond-aud-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: acs, audience: "https://someone-else.example.test/metadata", email: email))
+
+        refused.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      it "refuses an assertion addressed to a different Destination" do
+        # `validate_destination` compares the Response's `Destination` against
+        # the configured ACS URL, so an assertion captured from another
+        # deployment's endpoint cannot be posted here.
+        strat = strat_with_cert.call
+        email = "saml-cond-dest-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: "https://elsewhere.example.test/auth/adfs/callback",
+          audience: strat.issuer.as(String), email: email))
+
+        refused.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      # ---- gaps, pinned so they stay deliberate ----------------------
+
+      it "does NOT validate the declared Issuer — trust rests on the cert alone" do
+        # `crystal-saml`'s `validate_issuer` short-circuits to true when
+        # `settings.idp_entity_id` is nil, and `build_saml` never passes it
+        # (`external_providers.cr#build_saml` sets sp_entity_id, idp_cert,
+        # idp_cert_fingerprint … but no idp_entity_id). So `<saml:Issuer>` is
+        # decorative here.
+        #
+        # That is not currently exploitable: the signature must still verify
+        # against the strat's pinned `idp_cert`, so an attacker cannot mint
+        # one. It becomes load-bearing the moment a strat trusts more than one
+        # key, or a cert is reused across IdPs. Pinned rather than fixed
+        # because adding the check needs an `idp_entity_id` column and a
+        # value for every existing strat — a migration, not a code change.
+        strat = strat_with_cert.call
+        email = "saml-cond-iss-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+          acs_url: acs, audience: strat.issuer.as(String), email: email,
+          idp_entity_id: "https://not-the-configured-idp.example.test/metadata"))
+
+        admitted.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+
+      it "does NOT enforce one-time use — the same assertion replays until it expires" do
+        # There is no assertion-ID cache, and the SAML callback deliberately
+        # skips the session-state check (see "callback state check" above), so
+        # nothing binds a response to a request we issued. An assertion
+        # captured in transit, from a proxy log or from browser history can be
+        # POSTed again by anyone until `NotOnOrAfter`.
+        #
+        # The legacy Ruby service behaved the same way, and Shibboleth issues
+        # short windows, so this is the accepted SAML bearer-token model
+        # rather than a regression. It is pinned here so the exposure is a
+        # recorded decision — and so that if someone adds a replay cache, this
+        # spec is what tells them the behaviour changed.
+        strat = strat_with_cert.call
+        email = "saml-cond-replay-#{Random.rand(99999)}@localhost"
+        encoded = Spec::SamlFixtures.encode(
+          Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+            acs_url: acs, audience: strat.issuer.as(String), email: email)))
+
+        first = admitted.call(post_assertion.call(strat, encoded), email)
+        second_result = post_assertion.call(strat, encoded)
+
+        # Same bytes, accepted again, resolving to the same identity.
+        second = admitted.call(second_result, email)
+        second.id.should eq first.id
+      ensure
+        cleanup.call(email) if email
+        strat.try &.destroy
+      end
+    end
   end
 end

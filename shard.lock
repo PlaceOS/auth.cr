@@ -51,7 +51,7 @@ shards:
 
   crystal-saml:
     git: https://github.com/spider-gazelle/crystal-saml.git
-    version: 0.1.0+git.commit.f91e71025fc79e748f5cab725646972add6a94de
+    version: 0.1.0+git.commit.0e25bae0804b4d48f1c153889f96d0dd41390930
 
   db:
     git: https://github.com/crystal-lang/crystal-db.git
@@ -147,7 +147,7 @@ shards:
 
   pg-orm:
     git: https://github.com/spider-gazelle/pg-orm.git
-    version: 2.2.3
+    version: 2.2.4
 
   place_calendar:
     git: https://github.com/placeos/calendar.git
@@ -159,7 +159,7 @@ shards:
 
   placeos-models:
     git: https://github.com/placeos/models.git
-    version: 9.105.2
+    version: 9.107.1
 
   pool:
     git: https://github.com/ysbaddaden/pool.git

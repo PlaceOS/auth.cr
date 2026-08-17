@@ -51,7 +51,7 @@ shards:
 
   crystal-saml:
     git: https://github.com/spider-gazelle/crystal-saml.git
-    version: 0.1.0+git.commit.0e25bae0804b4d48f1c153889f96d0dd41390930
+    version: 0.1.0+git.commit.ae6003de97dca726f786e76ea35bf418cd8e10e6
 
   db:
     git: https://github.com/crystal-lang/crystal-db.git

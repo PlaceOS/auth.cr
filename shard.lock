@@ -7,7 +7,7 @@ shards:
 
   action-controller:
     git: https://github.com/spider-gazelle/action-controller.git
-    version: 8.1.1
+    version: 8.1.2
 
   active-model:
     git: https://github.com/spider-gazelle/active-model.git
@@ -15,7 +15,7 @@ shards:
 
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
-    version: 1.6.4
+    version: 1.7.0
 
   authly:
     git: https://github.com/place-labs/authly.git
@@ -159,7 +159,7 @@ shards:
 
   placeos-models:
     git: https://github.com/placeos/models.git
-    version: 9.107.5
+    version: 9.109.0
 
   pool:
     git: https://github.com/ysbaddaden/pool.git

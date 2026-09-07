@@ -252,8 +252,7 @@ module PlaceOS::Auth
     ) : Nil
       user = session_user
       if user.nil?
-        set_continue(request.resource)
-        redirect_to "/auth/login", :see_other
+        bounce_to_login
         return
       end
 
@@ -308,8 +307,7 @@ module PlaceOS::Auth
     ) : Nil
       user = session_user
       if user.nil?
-        set_continue(request.resource)
-        redirect_to "/auth/login", :see_other
+        bounce_to_login
         return
       end
 
@@ -342,11 +340,19 @@ module PlaceOS::Auth
     # the route is served for parity. Requires a session.
     @[AC::Route::GET("/authorize/native")]
     @[AC::Route::GET("/oauth/authorize/native")]
+    # Sends an unauthenticated caller to the login page with the request it
+    # was making carried in `continue`, and stashed in the session for the
+    # SSO callback, which does not see the query.
+    private def bounce_to_login : Nil
+      resource = request.resource
+      set_continue(resource)
+      redirect_to "/auth/login?continue=#{URI.encode_www_form(resource)}", :see_other
+    end
+
     def authorize_native(code : String? = nil) : Nil
       user = session_user
       if user.nil?
-        set_continue(request.resource)
-        redirect_to "/auth/login", :see_other
+        bounce_to_login
         return
       end
 

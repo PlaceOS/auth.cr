@@ -59,7 +59,7 @@ module PlaceOS::Auth
           headers: HTTP::Headers{"Host" => "localhost", "Content-Type" => "application/x-www-form-urlencoded"},
           body: body)
         result.status_code.should eq 303
-        result.headers["Location"].should eq "/auth/login"
+        result.headers["Location"].should eq "/auth/login?continue=#{URI.encode_www_form("/auth/oauth/authorize")}"
       ensure
         app.try &.destroy
       end
@@ -99,7 +99,7 @@ module PlaceOS::Auth
 
         result.status_code.should eq 303
         location = result.headers["Location"]
-        location.should eq "/auth/login"
+        location.should eq "/auth/login?continue=#{URI.encode_www_form("/auth/oauth/authorize?#{query}")}"
         # Nothing reached the client — no decision was invented on the
         # user's behalf.
         location.should_not contain "access_denied"
@@ -143,7 +143,16 @@ module PlaceOS::Auth
         result = client.get("/auth/oauth/authorize/native?code=ABC123",
           headers: HTTP::Headers{"Host" => "localhost"})
         result.status_code.should eq 303
-        result.headers["Location"].should eq "/auth/login"
+        result.headers["Location"].should eq "/auth/login?continue=#{URI.encode_www_form("/auth/oauth/authorize/native?code=ABC123")}"
+      end
+
+      it "carries the authorize request in continue so the login flow can return to it" do
+        path = "/auth/oauth/authorize?response_type=code&client_id=x&redirect_uri=https%3A%2F%2Fa%2Fcb"
+        result = client.get(path, headers: HTTP::Headers{"Host" => "localhost"})
+        result.status_code.should eq 303
+        location = result.headers["Location"]
+        location.should start_with "/auth/login?continue="
+        URI.decode_www_form(location.split("continue=", 2)[1]).should eq path
       end
     end
   end

@@ -82,7 +82,7 @@ module PlaceOS::Auth
         headers: HTTP::Headers{"Host" => "localhost"},
       )
       result.status_code.should eq 303
-      result.headers["Location"].should eq "/auth/login"
+      result.headers["Location"].should eq "/auth/login?continue=#{URI.encode_www_form("/auth/oauth/authorize?response_type=code&client_id=x&redirect_uri=https%3A%2F%2Fa%2Fcb")}"
     end
 
     # ---- TK-09: the two token mounts must not drift apart --------------

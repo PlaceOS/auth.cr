@@ -107,7 +107,7 @@ module PlaceOS::Auth
         "/auth/authorize?response_type=code&client_id=x&redirect_uri=https://evil.example/steal",
         headers: headers)
       response.status_code.should eq 303
-      response.headers["Location"].should eq "/auth/login"
+      response.headers["Location"].should eq "/auth/login?continue=#{URI.encode_www_form("/auth/authorize?response_type=code&client_id=x&redirect_uri=https://evil.example/steal")}"
     end
 
     it "survives a garbage bearer token on the token-introspection surfaces" do

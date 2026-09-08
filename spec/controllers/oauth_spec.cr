@@ -61,6 +61,8 @@ module PlaceOS::Auth
         body["access_token"].as_s.should_not be_empty
         body["token_type"].as_s.should eq "Bearer"
         body["expires_in"].as_i64.should be > 0
+        # clients compute expiry as created_at + expires_in, so the issue time must be present and current
+        (Time.utc.to_unix - body["created_at"].as_i64).should be < 60
       ensure
         app.try &.destroy
         user.try &.destroy

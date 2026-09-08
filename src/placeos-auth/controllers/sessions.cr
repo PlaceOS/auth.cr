@@ -169,8 +169,10 @@ module PlaceOS::Auth
         return
       end
 
+      # `{{url}}` sits inside a query parameter of the login page, so the
+      # target is encoded once; the page decodes it once.
       target = authority.login_url
-      target = target.gsub("{{url}}", continue || "")
+      target = target.gsub("{{url}}", URI.encode_www_form(continue || ""))
       redirect_to target.gsub(' ', "%20"), :see_other
     end
 

@@ -334,7 +334,23 @@ module PlaceOS::Auth
           headers: HTTP::Headers{"Host" => "localhost"},
         )
         result.status_code.should eq 303
-        result.headers["Location"].should eq "/login?continue=/home"
+        result.headers["Location"].should eq "/login?continue=%2Fhome"
+      end
+
+      it "keeps a continue that carries its own query intact through {{url}}" do
+        authority = ::PlaceOS::Model::Authority.find_by_domain("localhost").not_nil!
+        authority.login_url = "/login?continue={{url}}"
+        authority.save!
+
+        target = "/auth/oauth/authorize?response_type=code&client_id=x&redirect_uri=https%3A%2F%2Fa%2Fcb"
+        result = client.get(
+          "/auth/login?continue=#{URI.encode_www_form(target)}",
+          headers: HTTP::Headers{"Host" => "localhost"},
+        )
+        result.status_code.should eq 303
+        location = result.headers["Location"]
+        location.should eq "/login?continue=#{URI.encode_www_form(target)}"
+        URI.decode_www_form(location.split("continue=", 2)[1]).should eq target
       end
 
       it "redirects to /auth/:provider when provider+id supplied" do

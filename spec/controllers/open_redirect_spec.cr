@@ -189,7 +189,8 @@ module PlaceOS::Auth
           headers: HTTP::Headers{"Host" => "localhost"})
 
         result.status_code.should eq 303
-        result.headers["Location"].should eq "/auth/login"
+        result.headers["Location"].should eq "/auth/login?continue=#{URI.encode_www_form("/auth/authorize?response_type=code&client_id=x&redirect_uri=#{URI.encode_www_form("https://evil.example/cb")}")}"
+        result.headers["Location"].should start_with "/auth/login?continue=%2F"
       end
 
       # The authorize *grant* redirect is constrained to a registered

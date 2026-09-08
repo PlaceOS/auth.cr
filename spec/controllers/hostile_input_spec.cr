@@ -107,7 +107,9 @@ module PlaceOS::Auth
         "/auth/authorize?response_type=code&client_id=x&redirect_uri=https://evil.example/steal",
         headers: headers)
       response.status_code.should eq 303
-      response.headers["Location"].should eq "/auth/login"
+      location = response.headers["Location"]
+      location.should start_with "/auth/login?continue=%2Fauth%2Fauthorize"
+      URI.parse(location).host.should be_nil
     end
 
     it "survives a garbage bearer token on the token-introspection surfaces" do

@@ -32,6 +32,9 @@ module PlaceOS::Auth
       getter access_token : String
       getter token_type : String = "Bearer"
       getter expires_in : Int64
+      # Unix time the token was issued. Doorkeeper sent it, and clients
+      # compute expiry as `created_at + expires_in`.
+      getter created_at : Int64
       @[JSON::Field(emit_null: false)]
       getter refresh_token : String?
       @[JSON::Field(emit_null: false)]
@@ -53,6 +56,7 @@ module PlaceOS::Auth
         # the relative RFC 6749 `expires_in` matches the JWT and the legacy
         # 2-hour service.
         @expires_in = ::Authly.config.access_ttl.total_seconds.to_i64
+        @created_at = Time.utc.to_unix
       end
     end
 

@@ -17,7 +17,7 @@ module PlaceOS::Auth
     # Local password login. Accepts either a JSON body or
     # `application/x-www-form-urlencoded` form post — action-controller
     # picks the right parser based on `Content-Type`.
-    @[AC::Route::POST("/signin", body: :body)]
+    @[AC::Route::POST("/signin", body: :body, execution_context: "logins")]
     def signin(
       body : SigninBody,
     ) : Nil

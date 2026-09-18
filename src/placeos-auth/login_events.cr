@@ -20,12 +20,20 @@ module PlaceOS::Auth
       publish_to_redis(user_id, provider)
     }
 
-    # Single shared connection. `redis` is thread-safe per docs but we
-    # only `publish` (no blocking subscribers) so a single instance is
-    # fine. Lazy-init so tests don't pay the connection cost unless
-    # something actually publishes.
+    # Single shared connection, lazily created so tests don't pay the
+    # connection cost unless something actually publishes.
+    #
+    # A `::Redis` instance is NOT safe for concurrent use: two fibers (or,
+    # with execution contexts, two threads) issuing commands on the same
+    # socket read each other's replies, and one of them can be left waiting
+    # forever on data the other already buffered — hanging that login
+    # request indefinitely. Every command therefore runs under the mutex.
     @@redis : ::Redis? = nil
     @@redis_mutex = Mutex.new
+
+    # Bounds how long a slow or unreachable Redis can hold up a login (and,
+    # via the mutex, every login queued behind it).
+    REDIS_TIMEOUT = 2.seconds
 
     # Fire-and-forget. Errors are logged at `warn` and swallowed —
     # a flaky Redis must never block a successful login.
@@ -60,9 +68,22 @@ module PlaceOS::Auth
       return if redis_url.nil? || redis_url.empty?
 
       payload = {user_id: user_id, provider: provider}.to_json
-      redis = ensure_connection(redis_url)
-      return if redis.nil?
-      redis.publish(LOGIN_EVENTS_CHANNEL, payload)
+      @@redis_mutex.synchronize do
+        redis = @@redis ||= ::Redis.new(
+          url: redis_url,
+          connect_timeout: REDIS_TIMEOUT,
+          command_timeout: REDIS_TIMEOUT,
+        )
+        begin
+          redis.publish(LOGIN_EVENTS_CHANNEL, payload)
+        rescue ex
+          # drop the connection so the next login starts from a clean socket
+          # rather than one that may hold a half-read reply
+          redis.close rescue nil
+          @@redis = nil
+          raise ex
+        end
+      end
     rescue ex
       Log.warn(exception: ex) { {action: "login_events.publish", message: "ignoring failure"} }
     end
@@ -73,14 +94,6 @@ module PlaceOS::Auth
       @@redis_mutex.synchronize do
         @@redis.try &.close
         @@redis = nil
-      end
-    end
-
-    private def self.ensure_connection(url : String) : ::Redis?
-      @@redis_mutex.synchronize do
-        existing = @@redis
-        return existing if existing
-        @@redis = ::Redis.new(url: url)
       end
     end
   end

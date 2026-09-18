@@ -8,6 +8,13 @@ require "./logging"
 # Server required after application controllers
 require "action-controller/server"
 
+# Execution contexts (no-ops without -Dpreview_mt -Dexecution_context).
+# The local login index route can return large payloads, so it runs the whole
+# request in a dedicated "logins" context. Unbound routes offload their
+# response serialisation to the shared response context.
+ActionController::ExecutionContext.define "logins"
+ActionController::ExecutionContext.parallelism "logins", ENV["LOGIN_WORKERS"]?.try(&.to_i) || 2
+
 module PlaceOS::Auth
   # Fields to redact in request logs. Matches rest-api plus the auth-specific
   # entries we never want on disk.

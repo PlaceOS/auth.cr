@@ -39,8 +39,12 @@ RUN shards install --production --ignore-crystal-version --skip-postinstall --sk
 COPY ./src /app/src
 
 # Build application
-# --debug + --frame-pointers + the link flags below are required so the binary
-# ships DWARF info and an unwindable stack, i.e. runtime errors report backtraces
+# --frame-pointers + the link flags below keep the stack unwindable so runtime
+# errors report backtraces; release builds already embed line-number debug info.
+# Do NOT add --debug: full debug info de-optimises pure-Crystal hot paths
+# (bcrypt ~8x slower), which starved the scheduler and failed k8s healthchecks.
+# -Dpreview_mt -Dexecution_context enable the dedicated "logins" execution
+# context (see src/config.cr) so password hashing runs off the request threads.
 RUN UNAME_AT_COMPILE_TIME=true \
     PLACE_COMMIT=$PLACE_COMMIT \
     PLACE_VERSION=$PLACE_VERSION \
@@ -49,8 +53,9 @@ RUN UNAME_AT_COMPILE_TIME=true \
       --error-trace \
       --no-color \
       --static \
-      --debug \
       --frame-pointers=always \
+      -Dpreview_mt \
+      -Dexecution_context \
       --link-flags "-no-pie -Wl,-no-pie -Wl,--eh-frame-hdr -Wl,--build-id -rdynamic -Wl,--export-dynamic -lunwind -llzma"
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]

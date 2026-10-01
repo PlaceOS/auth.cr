@@ -41,6 +41,8 @@ module PlaceOS::Auth::AuthlyAdapter
       "authorization_code",
       "client_credentials",
       "refresh_token",
+      # RFC 8693, Entra subject tokens only — see `Utils::EntraTokenExchange`.
+      "urn:ietf:params:oauth:grant-type:token-exchange",
     }
 
     def valid_redirect?(client_id : String, redirect_uri : String) : Bool

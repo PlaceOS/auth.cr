@@ -151,6 +151,9 @@ module PlaceOS::Auth
       # have something to work with.
       case token = oauth_user.access_token
       when ::OAuth2::AccessToken::Bearer
+        # Token exchange carries no IdP token of its own (an empty bearer);
+        # keep whatever the user already has.
+        return if token.access_token.empty?
         user.access_token = token.access_token
         user.refresh_token = token.refresh_token
         if expires_in = token.expires_in

@@ -41,8 +41,11 @@ module PlaceOS::Auth
       getter scope : String?
       @[JSON::Field(emit_null: false)]
       getter id_token : String?
+      # RFC 8693 §2.2.1: REQUIRED on a token-exchange response, absent otherwise.
+      @[JSON::Field(emit_null: false)]
+      getter issued_token_type : String?
 
-      def initialize(at : ::Authly::AccessToken)
+      def initialize(at : ::Authly::AccessToken, @issued_token_type : String? = nil)
         @access_token = at.access_token
         @refresh_token = at.refresh_token.presence
         @id_token = at.id_token
@@ -164,12 +167,22 @@ module PlaceOS::Auth
       refresh_token : String? = nil,
       scope : String? = nil,
       code_verifier : String? = nil,
+      # RFC 8693 token exchange
+      subject_token : String? = nil,
+      subject_token_type : String? = nil,
+      requested_token_type : String? = nil,
+      audience : String? = nil,
+      resource : String? = nil,
     ) : TokenResponse
       # Password grant is intentionally disabled (project brief, and
       # because authly's `Client.allowed_grant_type?` also rejects it,
       # but failing fast here gives a clearer error response).
       if grant_type == "password"
         raise OAuthBadRequest.new("unsupported_grant_type", "the password grant has been disabled")
+      end
+
+      if grant_type == Utils::EntraTokenExchange::GRANT_TYPE
+        return token_exchange(client_id, client_secret, scope, subject_token, subject_token_type, requested_token_type, audience || resource)
       end
 
       access_token = case grant_type
@@ -238,6 +251,71 @@ module PlaceOS::Auth
       # code that is invalid, expired, or was issued to another client.
       Log.info(exception: ex) { {message: "rejected an undecodable grant", action: "token", grant_type: grant_type} }
       raise OAuthBadRequest.new("invalid_grant", "the grant is invalid, expired, or was not issued by this server")
+    end
+
+    # RFC 8693 token exchange: trade a Microsoft Entra access token for a
+    # PlaceOS token pair. See `Utils::EntraTokenExchange` for how the subject
+    # token is verified.
+    #
+    # The calling `client_id` is the PlaceOS application the issued token is
+    # for; it authenticates like any other grant (public clients without a
+    # secret), and the user is resolved exactly as a browser SSO login
+    # through the matching `oauth_strat` would resolve them.
+    private def token_exchange(
+      client_id : String,
+      client_secret : String?,
+      scope : String?,
+      subject_token : String?,
+      subject_token_type : String?,
+      requested_token_type : String?,
+      target : String?,
+    ) : TokenResponse
+      subject = subject_token.presence || raise OAuthBadRequest.new("invalid_request", "missing subject_token")
+      unless subject_token_type.in?(Utils::EntraTokenExchange::SUBJECT_TOKEN_TYPES)
+        raise OAuthBadRequest.new("invalid_request", "unsupported subject_token_type")
+      end
+      if requested_token_type && requested_token_type != Utils::EntraTokenExchange::TOKEN_TYPE_ACCESS_TOKEN
+        raise OAuthBadRequest.new("invalid_request", "unsupported requested_token_type")
+      end
+      # Tokens are always issued for this authority; a different target is
+      # not something we can honour.
+      raise OAuthBadRequest.new("invalid_target", "audience and resource are not supported") if target
+
+      clients = ::Authly.clients
+      unless clients.authorized?(client_id, client_secret || "")
+        raise OAuthUnauthorized.new("invalid_client", "client authentication failed")
+      end
+      unless clients.as(AuthlyAdapter::Client).allowed_grant_type?(client_id, Utils::EntraTokenExchange::GRANT_TYPE)
+        raise OAuthBadRequest.new("unauthorized_client", "client may not use token exchange")
+      end
+      # Doorkeeper's default scope, as for every other user grant.
+      granted_scope = scope.presence || "public"
+      raise OAuthBadRequest.new("invalid_scope", "scope=#{granted_scope}") unless clients.allowed_scopes?(client_id, granted_scope)
+
+      authority = current_authority
+      raise OAuthBadRequest.new("invalid_request", "unknown authority") unless authority
+
+      verified = Utils::EntraTokenExchange.verify(authority, subject)
+      oauth_user = Utils::EntraTokenExchange.oauth_user(verified)
+
+      # The strat's hosted-domain / attribute restriction applies here just
+      # as it does on the browser callback.
+      unless ExternalProviders.ensure_matching?(verified.strat.id, oauth_user.raw_json)
+        raise Utils::EntraTokenExchange::Rejected.new("ensure_matching restriction rejected the user")
+      end
+
+      user = Utils::OAuthUserMapper.map(authority: authority, oauth_user: oauth_user).user
+      Utils::EntraTokenExchange.ensure_graph_token(verified, user, subject)
+      LoginEvents.record_login(user, oauth_user.provider)
+
+      Log.info { {action: "token_exchange", message: "exchanged an Entra token", user_id: user.id, client_id: client_id, strat: verified.strat.id} }
+
+      no_store!
+      access_token = ::Authly::AccessToken.new(client_id, granted_scope, user_id: user.id.as(String))
+      TokenResponse.new(access_token, issued_token_type: Utils::EntraTokenExchange::TOKEN_TYPE_ACCESS_TOKEN)
+    rescue ex : Utils::EntraTokenExchange::Rejected
+      Log.info { {action: "token_exchange", message: "refused a subject token", reason: ex.message, client_id: client_id} }
+      raise OAuthBadRequest.new("invalid_grant", "the subject token is invalid, expired, or not accepted by this authority")
     end
 
     # --- GET|POST /auth/authorize -----------------------------------------
@@ -646,7 +724,7 @@ module PlaceOS::Auth
         @scopes_supported = ["openid", "profile", "email", "offline_access", "public"]
         # `implicit` and `password` are intentionally absent.
         @response_types_supported = ["code"]
-        @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token"]
+        @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token", Utils::EntraTokenExchange::GRANT_TYPE]
         @subject_types_supported = ["public"]
         @id_token_signing_alg_values_supported = ["RS256"]
         # `none` advertises that public clients may authenticate the token

@@ -55,10 +55,55 @@ clients can flip over without changes.
 | `GET` | `/auth/saml` | Kickoff SAML SP flow |
 | `GET/POST` | `/auth/saml/callback[/:strategy]` | Consume SAMLResponse |
 | `GET` | `/auth/authorize` | OAuth2 authorization endpoint (code flow) |
-| `POST` | `/auth/token` | OAuth2 token endpoint (`authorization_code`, `client_credentials`, `refresh_token`) |
+| `POST` | `/auth/token` | OAuth2 token endpoint (`authorization_code`, `client_credentials`, `refresh_token`, RFC 8693 token exchange) |
 | `POST` | `/auth/revoke` | RFC 7009 token revocation |
 | `GET` | `/auth/userinfo` | OIDC `userinfo` (Bearer-gated) |
 | `GET` | `/.well-known/openid-configuration` | OIDC discovery |
+
+## Microsoft Entra token exchange
+
+Apps already signed in to Microsoft (the Outlook add-in, Intune-managed
+clients) can trade their Entra access token for a PlaceOS token pair
+([RFC 8693](https://www.rfc-editor.org/rfc/rfc8693)) without a second login:
+
+```
+POST /auth/oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&client_id=<PlaceOS application uid>
+&subject_token=<Entra access token>
+&subject_token_type=urn:ietf:params:oauth:token-type:access_token
+&scope=public            (optional; defaults to public)
+```
+
+The response is the normal token response plus
+`issued_token_type: urn:ietf:params:oauth:token-type:access_token`.
+Failures return `400 invalid_grant`. The reason is logged and not returned
+to the client.
+
+The Entra token is accepted when all of the following hold:
+
+* An `oauth_strat` on the request's authority has a single-tenant Entra
+  token/authorize URL (`login.microsoftonline.com/<tenant>/...`, or a
+  sovereign-cloud equivalent). `common`/`organizations` strats cannot anchor
+  an exchange.
+* The token's `aud` is that strat's `client_id`, `api://<client_id>`, or
+  `api://<authority host>/<client_id>`. The last form is the App ID URI that
+  Office add-in SSO requires.
+* The token's `iss` is exactly the issuer published by that tenant's
+  discovery document (v1 or v2), and it is RS256-signed by a key from that
+  document's JWKS. Keys are never fetched from the token's own `iss`.
+* `tid` matches the tenant, the token is unexpired, and it is a delegated
+  token (`scp` present, `oid` present). App-only tokens are refused.
+* The strat's `ensure_matching` restriction passes. It is checked against
+  the token claims projected onto Graph `/me` names (`id`, `mail`,
+  `userPrincipalName`, `displayName`, ...).
+
+The user is resolved exactly as an SSO login through that strat would
+resolve them (`UserAuthLookup` on `oid`, then email, then auto-create). If
+the user has no unexpired Graph token, one is requested on their behalf
+(OAuth 2.0 on-behalf-of) and stored on the user. This step is best-effort.
 
 ## Environment
 

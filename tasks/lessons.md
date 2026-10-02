@@ -59,3 +59,18 @@ _(append entries here as the user pushes back on anything)_
 - `PlaceOS::Model::Generator.jwt` hard-codes `domain: Faker::Internet.email`. That works in rest-api specs only by accident: `URI.parse("name@example.com").host` returns nil and `URI.parse("localhost").host` also returns nil, so `ensure_matching_domain`'s `nil == nil` check passes. Any current_user implementation that falls back to the raw domain string when host is nil — which is the *correct* check in production — breaks against this seed data.
   - **Fix:** build the JWT manually in auth.cr's `Spec::Authentication.authentication` with `domain: authority.domain` rather than calling `Model::Generator.jwt`.
   - Consider upstream PR to placeos-models so the generator defaults to `user.authority.domain` instead of `Faker::Internet.email`.
+
+## MCP auth / consent (2026-10-02)
+- **HTML forms post every hidden field, including empty ones.** The consent form
+  round-trips `resource=`, `code_challenge=` etc. as empty strings, which hit
+  "present but invalid" checks (`validate_resource!("")` → 400 `invalid_target`).
+  Normalise optional OAuth params with `.presence` at the top of the action, and do
+  it BEFORE computing anything signed over them (the consent HMAC) so GET and POST
+  agree.
+- **Pre-checks change error semantics.** Adding an up-front "unknown client /
+  unregistered redirect" check in `authorize` turned AU-03's 400
+  `invalid_redirect_uri` into a 401. When adding gates in front of
+  `Authly.code`, let invalid clients fall through to authly so its typed errors
+  (pinned by specs) are preserved.
+- `DoorkeeperApplication#name` is `sanitize: :text` — tags are stripped on save, so
+  an HTML-escaping test must use an unsanitised source (e.g. a CIMD `client_name`).

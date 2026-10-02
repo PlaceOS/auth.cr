@@ -54,11 +54,13 @@ clients can flip over without changes.
 | `GET/POST` | `/auth/oauth2/callback[/:strategy]` | Consume OAuth2 callback |
 | `GET` | `/auth/saml` | Kickoff SAML SP flow |
 | `GET/POST` | `/auth/saml/callback[/:strategy]` | Consume SAMLResponse |
-| `GET` | `/auth/authorize` | OAuth2 authorization endpoint (code flow) |
+| `GET/POST` | `/auth/authorize` | OAuth2 authorization endpoint (code flow), consent screen for clients that require it |
+| `POST` | `/auth/register` | RFC 7591 dynamic client registration (public clients, e.g. MCP clients) |
 | `POST` | `/auth/token` | OAuth2 token endpoint (`authorization_code`, `client_credentials`, `refresh_token`, RFC 8693 token exchange) |
 | `POST` | `/auth/revoke` | RFC 7009 token revocation |
 | `GET` | `/auth/userinfo` | OIDC `userinfo` (Bearer-gated) |
 | `GET` | `/.well-known/openid-configuration` | OIDC discovery |
+| `GET` | `/.well-known/oauth-authorization-server` | RFC 8414 metadata (same document) |
 
 ## Microsoft Entra token exchange
 
@@ -105,6 +107,49 @@ resolve them (`UserAuthLookup` on `oid`, then email, then auto-create). If
 the user has no unexpired Graph token, one is requested on their behalf
 (OAuth 2.0 on-behalf-of) and stored on the user. This step is best-effort.
 
+## MCP clients
+
+[MCP](https://modelcontextprotocol.io) clients (Claude Code, Claude Desktop,
+VS Code, Cursor, ...) sign users in to a PlaceOS MCP server without any manual
+client setup:
+
+1. The MCP server (rest-api) answers `401` with its protected resource
+   metadata, which lists this service as the authorization server.
+2. The client reads `/.well-known/oauth-authorization-server`.
+3. The client identifies itself:
+   * **Client ID metadata document:** the `client_id` is an `https://` URL
+     serving the client's metadata (MCP's preferred method). No registration
+     and no database row; the document is fetched and cached for 5 minutes to
+     1 hour.
+   * **Dynamic registration:** `POST /auth/register` ([RFC 7591](https://www.rfc-editor.org/rfc/rfc7591))
+     creates a public client with a `dcr-` prefixed `client_id`.
+4. The client runs the authorization code flow with PKCE and the
+   [RFC 8707](https://www.rfc-editor.org/rfc/rfc8707) `resource` parameter. The
+   user signs in as usual, then approves the client on a consent screen.
+
+Safeguards for self registered clients:
+
+* They are public clients only (no secret). Their grants are limited to
+  `authorization_code` and `refresh_token`, and their scopes to the defaults
+  (`public`, `openid`, `profile`, `email`, `offline_access`).
+* PKCE with `S256` is mandatory.
+* Every authorization shows the consent screen. The form is protected by an
+  HMAC token bound to the session and the exact request, and the page can't be
+  framed.
+* Redirect URIs must be https, loopback http, or a private-use scheme.
+  Loopback redirects (`127.0.0.1`, `[::1]`, `localhost`) match on any port
+  ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252#section-7.3)), for
+  every client.
+* Metadata documents are only fetched over https from public hosts, without
+  following redirects, with short timeouts and a 10KB cap. `MCP_CLIENT_ID_HOSTS`
+  restricts which hosts may act as clients.
+* Registrations are rate limited to 10 per hour per IP.
+* A `resource` must be a URL on the request's authority (the token `aud`),
+  otherwise `invalid_target`.
+
+Administrator-registered applications see the consent screen unless
+`skip_authorization` is set. Set it on first-party apps such as Backoffice.
+
 ## Environment
 
 ### Required in production
@@ -124,6 +169,7 @@ the user has no unexpired Graph token, one is requested on their behalf
 | `JWT_ISSUER` | `POS` | `iss` claim on issued JWTs. Match the legacy Ruby value or services that pin issuer will reject. |
 | `SESSION_TIMEOUT_MINUTES` | `1440` | Session-cookie max age. Per-authority override available via `authority.internals["session_timeout"]`. |
 | `LOGIN_EVENTS_CHANNEL` | `placeos/auth/login` | Redis pub/sub channel for login events. |
+| `MCP_CLIENT_ID_HOSTS` | _(unset)_ | Comma separated hosts allowed to serve client ID metadata documents (e.g. `claude.ai,vscode.dev`). Unset allows any public https host. |
 | `PLACE_URI` | _(unset)_ | Base URL used when a legacy `X-API-Key` validation needs to round-trip to the core engine. |
 
 ## Run

@@ -110,3 +110,110 @@ Granular checklist that mirrors `PLAN.md`. Check off as we go; capture correctio
 - JWKS endpoint (`/.well-known/jwks.json`) — downstream PlaceOS services validate via baked-in `JWT_SECRET`, so not urgent
 - `before_signup` / `after_login` Crystal-native hooks — Rails-initialiser pattern, no obvious consumer in the binary world
 - Upstream PRs to `placeos-models` (Generator.jwt domain, User#password attribute shadowing) and `authly` (`AuthorizableClient` missing `allowed_grant_type?`, struct-const captures) — captured in `tasks/lessons.md`
+
+## MCP authentication (seamless OAuth for MCP clients)
+
+Context: MCP clients (Claude Code/Desktop, VS Code, Cursor, ...) discover auth.cr via
+rest-api's RFC 9728 metadata (`authorization_servers: ["https://<tenant host>"]`), then
+`/.well-known/oauth-authorization-server`, register themselves, and run authorization
+code + PKCE with the `resource` parameter. Today that fails at registration (no DCR /
+CIMD), at the redirect (exact-match loopback ports), and would issue codes to arbitrary
+clients without user consent.
+
+### Design (confirmed 2026-10-02: CIMD + DCR; consent for dynamic clients AND DB apps without skip_authorization; optional CIMD host allow-list)
+1. **Loopback redirects (RFC 8252 §7.3):** a registered `http://127.0.0.1|[::1]|localhost`
+   redirect URI matches any port (same scheme/host/path/query). Applies to all clients.
+2. **Client ID Metadata Documents** (MCP 2025-11-25 preferred):
+   - A `client_id` that is an `https://` URL is fetched as JSON. It must have
+     `client_id == URL`, `redirect_uris`, an optional `client_name`/`client_uri`/
+     `logo_uri`, a `token_endpoint_auth_method` of `none` (or absent), and no secret.
+   - SSRF guards:
+     - https only, no IP-literal/localhost hosts;
+     - resolved addresses must be public;
+     - no redirects, 3s/5s timeouts, 10KB body cap.
+   - Documents are cached in memory (honouring `max-age`, clamped to 5 min–1 h).
+   - An optional `MCP_CLIENT_ID_HOSTS` allow-list restricts which hosts may act as
+     clients.
+   - CIMD clients are virtual: public, `public` scope, no DB row. Tokens persist fine
+     because `oauth_tokens.client_id` has no FK.
+   - Advertised as `client_id_metadata_document_supported: true` in discovery.
+3. **Dynamic Client Registration (RFC 7591):** `POST /auth/register` and
+   `/auth/oauth/register`.
+   - Public clients only (`token_endpoint_auth_method: none`), with the
+     `authorization_code` and `refresh_token` grants and `public` scope.
+   - `redirect_uris` must be https, loopback http, or a private-use scheme (no
+     `javascript:`/`data:`/`file:`/non-loopback http).
+   - The uid is random (prefixed `dcr-`, avoiding the MD5(redirect_uri) unique
+     index); the name gets a unique suffix; `owner_id` is nil.
+   - Rate limited per IP (in memory). Advertised as `registration_endpoint`.
+4. **Consent screen** for dynamic clients (CIMD URL or `dcr-` uid) **and DB apps with
+   `skip_authorization = false`** (decided: honour the column; apps that should stay
+   silent must set it).
+   - `GET /auth/authorize` renders a minimal HTML page showing the client name, the
+     client_id host, the redirect target, the scopes and the tenant, with Allow/Deny
+     buttons.
+   - Allow POSTs back with a one-time CSRF token (stored in the session, bound to
+     the request params; needed because the session cookie is SameSite=None).
+   - Deny redirects `error=access_denied`.
+   - DB apps with `skip_authorization = true` keep today's silent grant.
+5. **PKCE:** S256 is required for dynamic clients; `plain` and missing challenges are
+   rejected. Legacy clients are unchanged.
+6. **`resource` (RFC 8707):** accepted on authorize, the authorization_code grant and
+   the refresh_token grant. Its host must equal the request's authority host (the token
+   `aud`); otherwise `invalid_target`. Token exchange keeps rejecting it.
+
+### Tasks
+- [x] loopback redirect matching in `AuthlyAdapter::Client` + specs
+- [x] `Utils::ClientMetadata` (fetch, validate, SSRF guards, cache) + Client adapter
+      lookup + specs (local HTTPS stub / injected fetcher)
+- [x] DCR endpoint + rate limit + specs
+- [x] consent page, CSRF token, allow/deny + specs
+- [x] PKCE S256 enforcement for dynamic clients + specs
+- [x] `resource` validation on authorize/token + specs
+- [x] discovery: `registration_endpoint`, `client_id_metadata_document_supported`
+- [x] README section; `./test` green (subagent); format + ameba
+- [x] E2E: rest-api style MCP metadata → auth.cr discovery → DCR/CIMD → consent →
+      token, using the official MCP TS SDK auth helpers against a local stack
+
+### Review
+Done (uncommitted).
+
+Files:
+- `utilities/redirect_uri.cr` (new): RFC 8252 loopback any-port matching and
+  `registrable?` (https, loopback http, private-use scheme).
+- `utilities/client_metadata.cr` (new): CIMD fetch with SSRF guards (https, no IP
+  literals or localhost, public DNS only, no redirects, 3s/5s timeouts, 10KB cap),
+  validation, a positive and negative cache, the `MCP_CLIENT_ID_HOSTS` allow-list,
+  and a replaceable `fetcher` for specs.
+- `utilities/consent.cr` (new): length-prefixed HMAC consent token (session uid +
+  iat + every authorize param, 10 min), escaped consent page.
+- `utilities/rate_limiter.cr` (new): fixed window, per process.
+- `controllers/registrations.cr` (new): RFC 7591 `POST /auth/register` and
+  `/auth/oauth/register`; public clients only; the uid is `dcr-<hex>`; each
+  registration owns itself (`owner_id = uid`); JSON only.
+- `authly_adapter/client.cr`: `ClientInfo` (DB app, `dcr-` app or CIMD), with
+  consent/PKCE policy; loopback-aware `valid_redirect?`; dynamic clients are
+  limited to authorization_code and refresh_token.
+- `controllers/oauth.cr`: consent flow, mandatory S256 for dynamic clients,
+  `resource` validation (authorize, authorization_code, refresh), shared
+  `access_denied_url`; discovery gains `registration_endpoint` and
+  `client_id_metadata_document_supported`.
+- Specs: new `spec/controllers/mcp_auth_spec.cr` (17); 26 existing fixtures set
+  `skip_authorization = true`.
+- README: "MCP clients" section, routes and `MCP_CLIENT_ID_HOSTS`.
+
+Verification:
+- `./test`: 381 examples, 0 failures, 1 pending (baseline 364/0/1).
+- Format clean; ameba clean on all new/changed files.
+- E2E: live binary + Postgres driven by the official MCP TS SDK (discovery →
+  registerClient → startAuthorization w/ PKCE + resource → signin → consent →
+  allow → ephemeral loopback redirect → exchangeAuthorization →
+  refreshAuthorization): all passed, token `aud` = authority host.
+
+Follow-ups:
+- Deploy: DB apps without `skip_authorization` (e.g. Backoffice) now get the
+  consent screen; set the column on first-party apps before rollout.
+- Discovery `issuer` drops non-default ports, so local dev on a custom port
+  advertises port-less endpoints (production unaffected).
+- `authorized_applications` doesn't list CIMD clients (no DB row).
+- No cleanup of unused `dcr-` registrations yet.

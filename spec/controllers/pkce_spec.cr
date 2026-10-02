@@ -17,6 +17,7 @@ module PlaceOS::Auth
       user.save!
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "pkce-test-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = redirect
       app.scopes = "public"
       app.owner_id = user.id.as(String)

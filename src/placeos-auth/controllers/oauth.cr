@@ -196,6 +196,7 @@ module PlaceOS::Auth
                      when "authorization_code"
                        raise OAuthBadRequest.new("invalid_request", "missing code") unless code
                        raise OAuthBadRequest.new("invalid_request", "missing redirect_uri") unless redirect_uri
+                       validate_resource!(resource)
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
@@ -206,6 +207,7 @@ module PlaceOS::Auth
                        )
                      when "refresh_token"
                        raise OAuthBadRequest.new("invalid_request", "missing refresh_token") unless refresh_token
+                       validate_resource!(resource)
                        ::Authly.access_token(
                          grant_type: grant_type,
                          client_id: client_id,
@@ -324,10 +326,12 @@ module PlaceOS::Auth
     # cookie session. If not, we stash the original URL on the session
     # and bounce through `/auth/login`.
     #
-    # The legacy service rendered no consent screen (`skip_authorization`
-    # was always true), so Doorkeeper's `POST authorize` (the consent
-    # submit) issued the grant exactly as the `GET` did. Both verbs map
-    # here for parity.
+    # Clients that require consent (self registered MCP clients, and apps
+    # without `skip_authorization`) are shown a consent screen; its form
+    # posts back here with `consent` and a `consent_token`. Apps that skip
+    # authorization are granted immediately, as the legacy service did, and
+    # Doorkeeper's `POST authorize` (the consent submit) still grants for
+    # them exactly as the `GET` does.
     @[AC::Route::GET("/authorize")]
     @[AC::Route::GET("/oauth/authorize")]
     @[AC::Route::POST("/authorize")]
@@ -340,6 +344,11 @@ module PlaceOS::Auth
       state : String? = nil,
       code_challenge : String? = nil,
       code_challenge_method : String? = nil,
+      # RFC 8707 resource indicator, MCP clients name the MCP server here
+      resource : String? = nil,
+      # consent screen submission: "allow" or "deny"
+      consent : String? = nil,
+      consent_token : String? = nil,
     ) : Nil
       user = session_user
       if user.nil?
@@ -352,6 +361,55 @@ module PlaceOS::Auth
       # alongside the password grant.
       if response_type != "code"
         raise OAuthBadRequest.new("unsupported_response_type", "response_type=#{response_type}")
+      end
+
+      # the consent form posts every field, empty values are absent
+      resource = resource.presence
+      code_challenge = code_challenge.presence
+      code_challenge_method = code_challenge_method.presence
+
+      # An unknown client or unregistered redirect URI falls through to
+      # `Authly.code`, which rejects it, so a consent screen is never shown
+      # for (and nothing redirects to) an unverified client.
+      client = ::Authly.clients.as(AuthlyAdapter::Client).client_info(client_id)
+      client = nil unless client.try(&.valid_redirect?(redirect_uri))
+
+      validate_resource!(resource) if client
+
+      # Self registered clients are public: PKCE is the only thing standing
+      # between an intercepted code and a token, so S256 is mandatory.
+      if client && client.pkce_required? && !(code_challenge && code_challenge_method.try(&.upcase) == "S256")
+        raise OAuthBadRequest.new("invalid_request", "this client must use PKCE with code_challenge_method=S256")
+      end
+
+      if client && client.consent_required?
+        approval = {client_id, redirect_uri, scope, state || "", code_challenge || "", code_challenge_method || "", resource || ""}.to_a
+        session_iat = session[Utils::SessionHelper::SESSION_IAT_KEY]?.to_s
+        user_id = user.id.as(String)
+
+        approved = request.method == "POST" && consent.in?("allow", "deny") &&
+                   consent_token && Utils::Consent.valid?(consent_token, user_id, session_iat, approval)
+        unless approved
+          render_consent(client, user, scope, redirect_uri, {
+            "response_type"         => response_type,
+            "client_id"             => client_id,
+            "redirect_uri"          => redirect_uri,
+            "scope"                 => scope,
+            "state"                 => state || "",
+            "code_challenge"        => code_challenge || "",
+            "code_challenge_method" => code_challenge_method || "",
+            "resource"              => resource || "",
+            "consent_token"         => Utils::Consent.token(user_id, session_iat, approval),
+          })
+          return
+        end
+
+        if consent == "deny"
+          Log.info { {action: "authorize", message: "user denied consent", client_id: client_id} }
+          redirect_to access_denied_url(redirect_uri, state), :found
+          return
+        end
+        Log.info { {action: "authorize", message: "user granted consent", client_id: client_id} }
       end
 
       result = begin
@@ -409,7 +467,11 @@ module PlaceOS::Auth
         raise OAuthBadRequest.new("invalid_request", "redirect_uri is not registered for this client")
       end
 
-      target = String.build do |io|
+      redirect_to access_denied_url(redirect_uri, state), :found
+    end
+
+    private def access_denied_url(redirect_uri : String, state : String?) : String
+      String.build do |io|
         io << redirect_uri
         io << (redirect_uri.includes?('?') ? '&' : '?')
         io << "error=access_denied"
@@ -419,8 +481,45 @@ module PlaceOS::Auth
           io << "&state=" << URI.encode_www_form(s)
         end
       end
+    end
 
-      redirect_to target, :found
+    # RFC 8707: the resource must be on this authority, as every token is
+    # issued for it (the token `aud` is the authority domain).
+    private def validate_resource!(resource : String?) : Nil
+      return unless resource = resource.presence
+      uri = URI.parse(resource)
+      host = uri.host.try(&.downcase)
+      valid = uri.scheme.in?("https", "http") && host && host == request.hostname.try(&.downcase) && uri.fragment.nil?
+      raise OAuthBadRequest.new("invalid_target", "resource must be a URL on #{request.hostname}") unless valid
+    rescue URI::Error
+      raise OAuthBadRequest.new("invalid_target", "resource must be a URL on #{request.hostname}")
+    end
+
+    private def render_consent(client : AuthlyAdapter::ClientInfo, user : ::PlaceOS::Model::User, scope : String, redirect_uri : String, fields : Hash(String, String)) : Nil
+      client_detail = if client.metadata_document?
+                        "Identified by #{URI.parse(client.client_id).host}"
+                      elsif client.dynamic?
+                        "Registered itself with this service"
+                      else
+                        "Registered by an administrator"
+                      end
+      scopes = scope.split.reject(&.empty?)
+      scopes = ["public"] if scopes.empty?
+      authority = current_authority
+
+      response.headers["X-Frame-Options"] = "DENY"
+      response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+      response.headers["Referrer-Policy"] = "no-referrer"
+      no_store!
+      render html: Utils::Consent.page(
+        client_name: client.name,
+        client_detail: client_detail,
+        redirect_detail: Utils::Consent.redirect_detail(redirect_uri),
+        scopes: scopes,
+        account: user.email.to_s,
+        tenant: authority.try(&.name) || request.hostname.to_s,
+        fields: fields,
+      )
     end
 
     # --- GET /auth/authorize/native ---------------------------------------
@@ -708,6 +807,12 @@ module PlaceOS::Auth
       getter jwks_uri : String
       getter introspection_endpoint : String
 
+      # RFC 7591 dynamic client registration
+      getter registration_endpoint : String
+
+      # OAuth client ID metadata documents, see `Utils::ClientMetadata`
+      getter client_id_metadata_document_supported : Bool = true
+
       def initialize(issuer : String, logout : String? = nil)
         base = issuer.rstrip('/')
         @issuer = base
@@ -720,6 +825,7 @@ module PlaceOS::Auth
         @revocation_endpoint = "#{base}/auth/oauth/revoke"
         @jwks_uri = "#{base}/auth/oauth/discovery/keys"
         @introspection_endpoint = "#{base}/auth/oauth/introspect"
+        @registration_endpoint = "#{base}/auth/oauth/register"
         @end_session_endpoint = logout
         @scopes_supported = ["openid", "profile", "email", "offline_access", "public"]
         # `implicit` and `password` are intentionally absent.

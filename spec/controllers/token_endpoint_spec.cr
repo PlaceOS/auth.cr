@@ -41,6 +41,7 @@ module PlaceOS::Auth
 
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "token-endpoint-#{Random.rand(999_999)}"
+      app.skip_authorization = true
       app.redirect_uri = redirect
       app.scopes = "public"
       app.owner_id = user.id.as(String)

@@ -37,6 +37,7 @@ module PlaceOS::Auth
 
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "refresh-scope-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://app.example/cb"
       app.scopes = "public"
       app.owner_id = user.id.as(String)

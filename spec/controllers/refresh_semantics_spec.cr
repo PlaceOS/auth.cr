@@ -34,6 +34,7 @@ module PlaceOS::Auth
     make_app = ->(confidential : Bool) {
       ::PlaceOS::Model::DoorkeeperApplication.new.tap do |app|
         app.name = "refresh-semantics-#{Random.rand(999_999)}"
+        app.skip_authorization = true
         # uid is MD5(redirect_uri), and redirect_uri is ensure_unique per owner
         app.redirect_uri = "https://rf.example/cb-#{Random.rand(999_999)}"
         app.scopes = "public"
@@ -385,6 +386,7 @@ module PlaceOS::Auth
         redirect = "https://rf10.example/cb-#{Random.rand(999_999)}"
         app = ::PlaceOS::Model::DoorkeeperApplication.new
         app.name = "rf10-#{Random.rand(999_999)}"
+        app.skip_authorization = true
         app.redirect_uri = redirect
         app.scopes = "public users"
         app.confidential = true

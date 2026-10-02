@@ -17,6 +17,7 @@ module PlaceOS::Auth
       end
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "authz-test-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://app.example/cb/#{UUID.random}"
       app.scopes = "public"
       app.owner_id = user.id.as(String)

@@ -53,6 +53,7 @@ module PlaceOS::Auth
       redirect = "https://oidc.example/cb/#{UUID.random}"
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "oidc-test-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = redirect
       app.scopes = scopes
       app.owner_id = user.id.as(String)
@@ -125,6 +126,7 @@ module PlaceOS::Auth
         end
         app = ::PlaceOS::Model::DoorkeeperApplication.new
         app.name = "oidc-cc-#{Random.rand(99999)}"
+        app.skip_authorization = true
         app.redirect_uri = "https://oidc.example/cb/#{UUID.random}"
         app.scopes = "public openid"
         app.owner_id = user.id.as(String)
@@ -490,6 +492,7 @@ module PlaceOS::Auth
         redirect = "https://oidc.example/cb/#{UUID.random}"
         app = ::PlaceOS::Model::DoorkeeperApplication.new
         app.name = "oidc-nonce-#{Random.rand(99999)}"
+        app.skip_authorization = true
         app.redirect_uri = redirect
         app.scopes = "openid public"
         app.owner_id = user.id.as(String)

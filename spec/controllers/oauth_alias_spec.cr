@@ -16,6 +16,7 @@ module PlaceOS::Auth
       end
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "oauth-alias-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = redirect
       app.scopes = scopes
       app.owner_id = user.id.as(String)
@@ -99,6 +100,7 @@ module PlaceOS::Auth
       user.save!
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "alias-parity-#{Random.rand(999_999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://alias.example/cb-#{Random.rand(999_999)}"
       app.scopes = "public"
       app.confidential = true

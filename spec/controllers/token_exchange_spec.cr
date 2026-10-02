@@ -45,6 +45,7 @@ module PlaceOS::Auth
       owner = ::PlaceOS::Model::Generator.user(authority.call).tap(&.save!)
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "outlook-addin-#{Random.rand(999_999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://localhost/addin/#{Random.rand(999_999)}"
       app.scopes = "public"
       app.owner_id = owner.id.as(String)

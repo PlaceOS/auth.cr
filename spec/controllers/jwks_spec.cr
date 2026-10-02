@@ -55,6 +55,7 @@ module PlaceOS::Auth
       # for anyone integrating a conformant RP.
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "jwks-kid-#{Random.rand(999_999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://jwks.example/cb-#{Random.rand(999_999)}"
       app.scopes = "public"
       app.confidential = true

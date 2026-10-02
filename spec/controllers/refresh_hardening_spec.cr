@@ -40,6 +40,7 @@ module PlaceOS::Auth
     make_app = ->(confidential : Bool) {
       ::PlaceOS::Model::DoorkeeperApplication.new.tap do |app|
         app.name = "refresh-hardening-#{Random.rand(999_999)}"
+        app.skip_authorization = true
         # unique per app: redirect_uri is ensure_unique scoped to owner_id
         app.redirect_uri = "https://app.example/cb-#{Random.rand(999_999)}"
         app.scopes = "public"

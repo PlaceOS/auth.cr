@@ -29,6 +29,7 @@ module PlaceOS::Auth
 
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "claims-test-#{Random.rand(99999)}"
+      app.skip_authorization = true
       app.redirect_uri = "https://app.example/cb"
       app.scopes = scopes
       app.owner_id = user.id.as(String)
@@ -147,6 +148,7 @@ module PlaceOS::Auth
         end
         app = ::PlaceOS::Model::DoorkeeperApplication.new
         app.name = "ttl-test-#{Random.rand(99999)}"
+        app.skip_authorization = true
         app.redirect_uri = "https://app.example/cb"
         app.scopes = "public"
         app.owner_id = user.id.as(String)

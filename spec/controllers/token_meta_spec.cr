@@ -12,6 +12,7 @@ module PlaceOS::Auth
       end
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "meta-test-#{Random.rand(99999)}"
+      app.skip_authorization = true
       # uid is derived from redirect_uri (MD5) and globally unique, so
       # every app in a test needs a distinct redirect.
       app.redirect_uri = "https://app.example/cb/#{UUID.random}"

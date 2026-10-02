@@ -32,6 +32,7 @@ module PlaceOS::Auth
       redirect = "https://tier.example/cb-#{slug}-#{Random.rand(999_999)}"
       app = ::PlaceOS::Model::DoorkeeperApplication.new
       app.name = "tier-#{slug}-#{Random.rand(999_999)}"
+      app.skip_authorization = true
       app.redirect_uri = redirect
       app.scopes = "public"
       app.owner_id = user.id.as(String)

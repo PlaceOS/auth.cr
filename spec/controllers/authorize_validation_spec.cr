@@ -43,6 +43,7 @@ module PlaceOS::Auth
     make_app = ->(redirect : String) {
       ::PlaceOS::Model::DoorkeeperApplication.new.tap do |app|
         app.name = "authorize-validation-#{Random.rand(999_999)}"
+        app.skip_authorization = true
         app.redirect_uri = redirect
         app.scopes = "public"
         app.confidential = false

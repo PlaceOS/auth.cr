@@ -859,6 +859,35 @@ module PlaceOS::Auth
       Response.new(issuer: request_issuer, logout: authority.try(&.logout_url))
     end
 
+    # RFC 9728 OAuth protected resource metadata, for the resource servers on
+    # this host. nginx routes `/.well-known/*` here, so this is served on their
+    # behalf, e.g. rest-api's MCP endpoint at
+    # `/.well-known/oauth-protected-resource/api/engine/v2/mcp`. MCP clients
+    # follow it to discover this authorization server.
+    struct ProtectedResource
+      include JSON::Serializable
+
+      getter resource : String
+      getter authorization_servers : Array(String)
+      getter scopes_supported : Array(String) = ["public"]
+      getter bearer_methods_supported : Array(String) = ["header"]
+
+      def initialize(@resource, issuer : String)
+        @authorization_servers = [issuer]
+      end
+    end
+
+    PROTECTED_RESOURCE_PATH = "/.well-known/oauth-protected-resource"
+
+    # the glob also matches the bare path (LuckyRouter globs match zero segments)
+    @[AC::Route::GET("/.well-known/oauth-protected-resource/*:resource_path")]
+    def protected_resource : ProtectedResource
+      issuer = request_issuer
+      # MCP clients fetch this cross-origin from browser based tooling
+      response.headers["Access-Control-Allow-Origin"] = "*"
+      ProtectedResource.new("#{issuer}#{request.path.lchop(PROTECTED_RESOURCE_PATH)}", issuer)
+    end
+
     # OIDC discovery §2: WebFinger. The legacy service echoed the
     # `resource` parameter back untouched with a single issuer link;
     # requests without `resource` fail with 400.

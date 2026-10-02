@@ -385,6 +385,23 @@ module PlaceOS::Auth
       end
     end
 
+    it "serves protected resource metadata for resource servers on this host" do
+      response = client.get("/.well-known/oauth-protected-resource/api/engine/v2/mcp", headers: host_headers)
+      response.status_code.should eq 200
+      response.headers["Access-Control-Allow-Origin"].should eq "*"
+      doc = JSON.parse(response.body)
+      doc["resource"].should eq "http://localhost/api/engine/v2/mcp"
+      doc["authorization_servers"].as_a.should eq ["http://localhost"]
+      doc["scopes_supported"].as_a.should eq ["public"]
+
+      # agrees with the authorization server's issuer
+      issuer = JSON.parse(client.get("/.well-known/oauth-authorization-server", headers: host_headers).body)["issuer"]
+      doc["authorization_servers"][0].should eq issuer
+
+      tenant = HTTP::Headers{"Host" => "localhost", "X-Forwarded-Proto" => "https"}
+      JSON.parse(client.get("/.well-known/oauth-protected-resource", headers: tenant).body)["resource"].should eq "https://localhost"
+    end
+
     it "advertises registration in the discovery document" do
       doc = JSON.parse(client.get("/.well-known/oauth-authorization-server", headers: host_headers).body)
       doc["registration_endpoint"].as_s.should end_with "/auth/oauth/register"

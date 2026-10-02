@@ -74,3 +74,7 @@ _(append entries here as the user pushes back on anything)_
   (pinned by specs) are preserved.
 - `DoorkeeperApplication#name` is `sanitize: :text` — tags are stripped on save, so
   an HTML-escaping test must use an unsanitised source (e.g. a CIMD `client_name`).
+- **LuckyRouter globs match zero segments.** `GET /x` plus `GET /x/*:path` raises
+  `LuckyRouter::DuplicateRouteError` at route init — at runtime, so the typecheck
+  passes and only the spec run (or boot) catches it. Declare the glob route alone;
+  it also serves the bare path.

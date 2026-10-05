@@ -372,6 +372,11 @@ module PlaceOS::Auth
       # `Authly.code`, which rejects it, so a consent screen is never shown
       # for (and nothing redirects to) an unverified client.
       client = ::Authly.clients.as(AuthlyAdapter::Client).client_info(client_id)
+
+      # a metadata document client we can't use, say why rather than authly's generic error
+      if client.nil? && Utils::ClientMetadata.client_id?(client_id)
+        raise OAuthUnauthorized.new("unauthorized_client", "the client metadata document at client_id could not be used")
+      end
       client = nil unless client.try(&.valid_redirect?(redirect_uri))
 
       validate_resource!(resource) if client

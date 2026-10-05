@@ -32,7 +32,16 @@ module PlaceOS::Auth
       getter redirect_uris : Array(String)
       getter token_endpoint_auth_method : String?
 
-      def initialize(@client_id, @redirect_uris, @client_name = nil, @client_uri = nil, @logo_uri = nil, @token_endpoint_auth_method = nil)
+      # the methods a client can fall back to, e.g. ChatGPT prefers
+      # `private_key_jwt` but also supports `none`
+      getter token_endpoint_auth_methods_supported : Array(String)?
+
+      def initialize(@client_id, @redirect_uris, @client_name = nil, @client_uri = nil, @logo_uri = nil, @token_endpoint_auth_method = nil, @token_endpoint_auth_methods_supported = nil)
+      end
+
+      # can the client authenticate as a public client (PKCE, no credentials)?
+      def public_client? : Bool
+        token_endpoint_auth_method.in?(nil, "none") || !!token_endpoint_auth_methods_supported.try(&.includes?("none"))
       end
 
       # human readable name, the document host when unnamed
@@ -121,7 +130,7 @@ module PlaceOS::Auth
 
       document = Document.from_json(body)
       raise Invalid.new("client_id does not match the document URL") unless document.client_id == client_id
-      raise Invalid.new("token_endpoint_auth_method must be none") unless document.token_endpoint_auth_method.in?(nil, "none")
+      raise Invalid.new("the client must support token_endpoint_auth_method none") unless document.public_client?
       raise Invalid.new("redirect_uris is required") if document.redirect_uris.empty?
       document.redirect_uris.each do |redirect|
         raise Invalid.new("redirect_uri not permitted: #{redirect}") unless Utils::RedirectURI.registrable?(redirect)

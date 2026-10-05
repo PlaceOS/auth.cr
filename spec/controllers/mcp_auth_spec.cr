@@ -359,6 +359,51 @@ module PlaceOS::Auth
         response = client.get(authorize_url.call(metadata_url, "http://127.0.0.1:41000/callback", {"code_challenge" => challenge_for.call("verifier-x" * 5), "code_challenge_method" => "S256"}), headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie})
         response.status_code.should eq 401
         JSON.parse(response.body)["error"].should eq "unauthorized_client"
+        JSON.parse(response.body)["error_description"].as_s.should contain "client metadata document"
+      ensure
+        Utils::ClientMetadata.fetcher = ->(uri : URI) { Utils::ClientMetadata.http_fetch(uri) }
+        Utils::ClientMetadata.clear_cache
+        user.try &.destroy
+      end
+
+      chatgpt_url = "https://chatgpt.com/oauth/Y2wqcfDEXatY/client.json"
+      # ChatGPT's document: it prefers private_key_jwt but also supports none
+      chatgpt = %({"client_id":"#{chatgpt_url}","client_uri":"https://chatgpt.com/","redirect_uris":["https://chatgpt.com/connector/oauth/Y2wqcfDEXatY"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["none","private_key_jwt"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"client_name":"ChatGPT","logo_uri":"https://persistent.oaistatic.com/sonic/misc/openai-logo.png","token_endpoint_auth_signing_alg":"RS256","jwks_uri":"https://chatgpt.com/oauth/jwks.json"})
+
+      it "accepts clients that also support public client authentication" do
+        Utils::ClientMetadata.parse!(chatgpt_url, chatgpt).display_name.should eq "ChatGPT"
+
+        private_key_only = chatgpt.sub(%("token_endpoint_auth_methods_supported":["none","private_key_jwt"]), %("token_endpoint_auth_methods_supported":["private_key_jwt"]))
+        expect_raises(Utils::ClientMetadata::Invalid, /must support token_endpoint_auth_method none/) do
+          Utils::ClientMetadata.parse!(chatgpt_url, private_key_only)
+        end
+      end
+
+      it "authorizes ChatGPT" do
+        user, password = make_user.call
+        cookie = Spec.signin!(client, user, password)
+        Utils::ClientMetadata.clear_cache
+        Utils::ClientMetadata.fetcher = ->(_uri : URI) { {chatgpt, nil.as(Time::Span?)} }
+
+        # the request ChatGPT makes
+        params = URI::Params.build do |form|
+          form.add "response_type", "code"
+          form.add "client_id", chatgpt_url
+          form.add "redirect_uri", "https://chatgpt.com/connector/oauth/Y2wqcfDEXatY"
+          form.add "scope", "openid email offline_access public"
+          form.add "code_challenge", challenge_for.call("chatgpt-verifier-#{Random::Secure.hex(16)}")
+          form.add "code_challenge_method", "S256"
+          form.add "resource", "https://localhost/api/engine/v2/mcp"
+          form.add "state", "oauth_s_example"
+        end
+        page = client.get("/auth/oauth/authorize?#{params}", headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie})
+        page.status_code.should eq 200
+        page.body.should contain "ChatGPT"
+        page.body.should contain "Identified by chatgpt.com"
+
+        approved = submit_consent.call(consent_fields.call(page.body), "allow", cookie)
+        approved.status_code.should eq 302
+        approved.headers["Location"].should start_with "https://chatgpt.com/connector/oauth/Y2wqcfDEXatY?code="
       ensure
         Utils::ClientMetadata.fetcher = ->(uri : URI) { Utils::ClientMetadata.http_fetch(uri) }
         Utils::ClientMetadata.clear_cache

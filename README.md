@@ -143,7 +143,11 @@ Safeguards for self registered clients:
 * Metadata documents are only fetched over https from public hosts, without
   following redirects, with short timeouts and a 10KB cap. `MCP_CLIENT_ID_HOSTS`
   restricts which hosts may act as clients.
-* Registrations are rate limited to 10 per hour per IP.
+* A registration matching an existing one (same client name and redirect URIs)
+  returns the existing `client_id`, so every user of a client such as Claude or
+  ChatGPT shares one registration. Only new client identities count towards
+  `MCP_REGISTRATION_LIMIT` per hour. This is a global limit, not per IP: hosted
+  clients register from shared IP addresses.
 * A `resource` must be a URL on the request's authority (the token `aud`),
   otherwise `invalid_target`.
 
@@ -169,6 +173,7 @@ Administrator-registered applications see the consent screen unless
 | `JWT_ISSUER` | `POS` | `iss` claim on issued JWTs. Match the legacy Ruby value or services that pin issuer will reject. |
 | `SESSION_TIMEOUT_MINUTES` | `1440` | Session-cookie max age. Per-authority override available via `authority.internals["session_timeout"]`. |
 | `LOGIN_EVENTS_CHANNEL` | `placeos/auth/login` | Redis pub/sub channel for login events. |
+| `MCP_REGISTRATION_LIMIT` | `10` | New dynamic client registrations allowed per hour (per process). Registrations matching an existing client are reused and don't count. |
 | `MCP_CLIENT_ID_HOSTS` | _(unset)_ | Comma separated hosts allowed to serve client ID metadata documents (e.g. `claude.ai,vscode.dev`). Unset allows any public https host. |
 | `PLACE_URI` | _(unset)_ | Base URL used when a legacy `X-API-Key` validation needs to round-trip to the core engine. |
 

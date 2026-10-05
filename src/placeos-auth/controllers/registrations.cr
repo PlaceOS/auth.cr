@@ -6,12 +6,21 @@ module PlaceOS::Auth
   # Lets MCP clients (and other native or browser apps) register themselves
   # without an administrator. Only public clients are accepted: they hold no
   # secret, must use PKCE (S256) and every authorization they request is shown
-  # to the user on a consent screen. Registrations are rate limited per IP.
+  # to the user on a consent screen.
+  #
+  # A public client's registration is just its metadata, so a request matching an
+  # existing registration (same client name and redirect URIs) returns that
+  # client. Every user of a client such as Claude or ChatGPT shares one
+  # registration. Only new client identities count towards `MCP_REGISTRATION_LIMIT`
+  # per hour. That's a global limit: hosted clients register from shared IPs, so a
+  # per-IP limit would refuse their users.
   class Registrations < Application
     base "/auth"
 
-    # registrations permitted per client IP per hour
-    class_property limiter : Utils::RateLimiter = Utils::RateLimiter.new(10, 1.hour)
+    # new client registrations permitted per hour, across all callers
+    REGISTRATION_LIMIT = ENV["MCP_REGISTRATION_LIMIT"]?.try(&.to_i?) || 10
+
+    class_property limiter : Utils::RateLimiter = Utils::RateLimiter.new(REGISTRATION_LIMIT, 1.hour)
 
     GRANT_TYPES = {"authorization_code", "refresh_token"}
 
@@ -45,8 +54,8 @@ module PlaceOS::Auth
       getter token_endpoint_auth_method : String = "none"
       getter scope : String
 
-      def initialize(@client_id, @client_name, @redirect_uris, @grant_types, @scope)
-        @client_id_issued_at = Time.utc.to_unix
+      def initialize(@client_id, @client_name, @redirect_uris, @grant_types, @scope, issued_at : Time)
+        @client_id_issued_at = issued_at.to_unix
       end
     end
 
@@ -87,9 +96,8 @@ module PlaceOS::Auth
     @[AC::Route::POST("/register", body: :metadata, status_code: HTTP::Status::CREATED)]
     @[AC::Route::POST("/oauth/register", body: :metadata, status_code: HTTP::Status::CREATED)]
     def register(metadata : ClientMetadata) : ClientInformation
-      raise TooManyRegistrations.new("too many client registrations, try again later") unless self.class.limiter.allow?(client_ip)
-
-      redirect_uris = metadata.redirect_uris || [] of String
+      # order and duplicates don't change a client's identity
+      redirect_uris = (metadata.redirect_uris || [] of String).uniq.sort!
       raise InvalidRegistration.new("invalid_redirect_uri", "redirect_uris is required") if redirect_uris.empty?
       raise InvalidRegistration.new("invalid_redirect_uri", "too many redirect_uris") if redirect_uris.size > 10
       redirect_uris.each do |redirect|
@@ -116,6 +124,14 @@ module PlaceOS::Auth
       end
 
       client_name = metadata.client_name.presence.try(&.strip[0, 100]) || "MCP client"
+      redirect_uri = redirect_uris.join(' ')
+
+      if existing = find_registration(client_name, redirect_uri)
+        Log.info { {message: "reused a dynamic client registration", client_id: existing.uid, client_name: client_name} }
+        return ClientInformation.new(existing.uid.as(String), client_name, redirect_uris, grant_types, scope, existing.created_at || Time.utc)
+      end
+
+      raise TooManyRegistrations.new("too many new client registrations, try again later") unless self.class.limiter.allow?("registrations")
       uid = "#{AuthlyAdapter::Client::DYNAMIC_PREFIX}#{Random::Secure.hex(16)}"
 
       app = ::PlaceOS::Model::DoorkeeperApplication.new
@@ -124,14 +140,22 @@ module PlaceOS::Auth
       # owns itself: many users can register the same client
       app.owner_id = uid
       app.name = "#{client_name} (#{uid[-6..]})"
-      app.redirect_uri = redirect_uris.join(' ')
+      app.redirect_uri = redirect_uri
       app.scopes = "public"
       app.confidential = false
       app.skip_authorization = false
       app.save!
 
-      Log.info { {message: "registered a dynamic client", client_id: uid, client_name: client_name, redirect_uris: redirect_uris.join(' ')} }
-      ClientInformation.new(uid, client_name, redirect_uris, grant_types, scope)
+      Log.info { {message: "registered a dynamic client", client_id: uid, client_name: client_name, redirect_uris: redirect_uri} }
+      ClientInformation.new(uid, client_name, redirect_uris, grant_types, scope, app.created_at || Time.utc)
+    end
+
+    # an existing dynamic registration for the same client
+    private def find_registration(client_name : String, redirect_uri : String) : ::PlaceOS::Model::DoorkeeperApplication?
+      ::PlaceOS::Model::DoorkeeperApplication.where(redirect_uri: redirect_uri).to_a.find do |app|
+        uid = app.uid.to_s
+        uid.starts_with?(AuthlyAdapter::Client::DYNAMIC_PREFIX) && app.name == "#{client_name} (#{uid[-6..]})"
+      end
     end
   end
 end

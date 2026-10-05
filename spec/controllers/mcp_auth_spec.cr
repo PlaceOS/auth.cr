@@ -126,22 +126,30 @@ module PlaceOS::Auth
     end
 
     describe "dynamic client registration" do
-      it "registers public clients" do
-        response = register.call({client_name: "Claude Code", redirect_uris: ["http://localhost/callback"], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"]}.to_json)
+      it "registers public clients, reusing identical registrations" do
+        name = "Claude Code #{Random.rand(999_999)}"
+        response = register.call({client_name: name, redirect_uris: ["http://localhost/callback", "https://app.example.com/cb"], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"]}.to_json)
         response.status_code.should eq 201
         info = JSON.parse(response.body)
         client_id = info["client_id"].as_s
         client_id.should start_with "dcr-"
-        info["client_name"].should eq "Claude Code"
+        info["client_name"].should eq name
         info["token_endpoint_auth_method"].should eq "none"
         info["client_secret"]?.should be_nil
 
-        # many users register the same client
-        second = register.call({client_name: "Claude Code", redirect_uris: ["http://localhost/callback"]}.to_json)
-        second.status_code.should eq 201
-        JSON.parse(second.body)["client_id"].should_not eq client_id
+        # every user of a client shares its registration, whatever the redirect order
+        same = register.call({client_name: name, redirect_uris: ["https://app.example.com/cb", "http://localhost/callback"]}.to_json)
+        same.status_code.should eq 201
+        JSON.parse(same.body)["client_id"].should eq client_id
+        JSON.parse(same.body)["client_id_issued_at"].should eq info["client_id_issued_at"]
+
+        # a different client is a new registration
+        other = register.call({client_name: "#{name} beta", redirect_uris: ["http://localhost/callback", "https://app.example.com/cb"]}.to_json)
+        other.status_code.should eq 201
+        other_id = JSON.parse(other.body)["client_id"].as_s
+        other_id.should_not eq client_id
       ensure
-        [client_id, second.try { |resp| JSON.parse(resp.body)["client_id"]?.try(&.as_s) }].each do |uid|
+        [client_id, other_id].each do |uid|
           ::PlaceOS::Model::DoorkeeperApplication.where(uid: uid).first?.try(&.destroy) if uid
         end
       end
@@ -166,11 +174,17 @@ module PlaceOS::Auth
         error.call(response).should eq "invalid_client_metadata"
       end
 
-      it "rate limits registrations" do
+      it "limits new registrations, not reused ones" do
         Registrations.limiter = Utils::RateLimiter.new(1, 1.hour)
-        first = register.call({redirect_uris: ["https://limited.example.com/cb"]}.to_json)
+        name = "Limited #{Random.rand(999_999)}"
+        first = register.call({client_name: name, redirect_uris: ["https://limited.example.com/cb"]}.to_json)
         first.status_code.should eq 201
-        limited = register.call({redirect_uris: ["https://limited.example.com/cb"]}.to_json)
+
+        # the same client again is reused, so isn't limited
+        register.call({client_name: name, redirect_uris: ["https://limited.example.com/cb"]}.to_json).status_code.should eq 201
+
+        # a new client identity is limited
+        limited = register.call({client_name: "#{name} 2", redirect_uris: ["https://limited.example.com/cb"]}.to_json)
         limited.status_code.should eq 429
         limited.headers["Retry-After"]?.should_not be_nil
       ensure

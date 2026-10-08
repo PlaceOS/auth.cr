@@ -1,0 +1,5138 @@
+---
+openapi: 3.1.0
+info:
+  description: PlaceOS Auth service (Crystal)
+  title: auth
+  version: v2
+paths:
+  /auth/oauth/applications:
+    summary: OAuth application management, matching Doorkeeper's
+    description: 'OAuth application management, matching Doorkeeper''s
+
+      `/auth/oauth/applications` admin surface (PPT-2536). In the platform
+
+      these records are normally managed through rest-api''s `/oauth_apps`
+
+      + Backoffice; this controller exists for drop-in parity with the
+
+      legacy service.
+
+
+      Every action is gated on a signed-in sys_admin (Doorkeeper''s
+
+      `admin_authenticator`); non-admins get 404, exactly as the legacy
+
+      service intended — the resource is invisible rather than forbidden.'
+    get:
+      summary: GET /auth/oauth/applications
+      description: 'GET /auth/oauth/applications
+
+
+        Doorkeeper served an HTML table here and, for JSON, `head
+
+        :no_content`. We reproduce the JSON behaviour: 204, empty body.'
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_index
+      parameters: []
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: POST /auth/oauth/applications
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_create
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Applications.Record'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/applications/new:
+    summary: OAuth application management, matching Doorkeeper's
+    description: 'OAuth application management, matching Doorkeeper''s
+
+      `/auth/oauth/applications` admin surface (PPT-2536). In the platform
+
+      these records are normally managed through rest-api''s `/oauth_apps`
+
+      + Backoffice; this controller exists for drop-in parity with the
+
+      legacy service.
+
+
+      Every action is gated on a signed-in sys_admin (Doorkeeper''s
+
+      `admin_authenticator`); non-admins get 404, exactly as the legacy
+
+      service intended — the resource is invisible rather than forbidden.'
+    get:
+      summary: GET /auth/oauth/applications/new — HTML form in the legacy admin UI.
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_new
+      parameters: []
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/applications/{id}/edit:
+    summary: OAuth application management, matching Doorkeeper's
+    description: 'OAuth application management, matching Doorkeeper''s
+
+      `/auth/oauth/applications` admin surface (PPT-2536). In the platform
+
+      these records are normally managed through rest-api''s `/oauth_apps`
+
+      + Backoffice; this controller exists for drop-in parity with the
+
+      legacy service.
+
+
+      Every action is gated on a signed-in sys_admin (Doorkeeper''s
+
+      `admin_authenticator`); non-admins get 404, exactly as the legacy
+
+      service intended — the resource is invisible rather than forbidden.'
+    get:
+      summary: GET /auth/oauth/applications/:id/edit — HTML form in the admin UI.
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_edit
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/applications/{id}:
+    summary: OAuth application management, matching Doorkeeper's
+    description: 'OAuth application management, matching Doorkeeper''s
+
+      `/auth/oauth/applications` admin surface (PPT-2536). In the platform
+
+      these records are normally managed through rest-api''s `/oauth_apps`
+
+      + Backoffice; this controller exists for drop-in parity with the
+
+      legacy service.
+
+
+      Every action is gated on a signed-in sys_admin (Doorkeeper''s
+
+      `admin_authenticator`); non-admins get 404, exactly as the legacy
+
+      service intended — the resource is invisible rather than forbidden.'
+    get:
+      summary: GET /auth/oauth/applications/:id
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_show
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Applications.Record'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    put:
+      summary: PATCH|PUT /auth/oauth/applications/:id
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_update
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Applications.Record'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    delete:
+      summary: DELETE /auth/oauth/applications/:id
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_destroy
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    patch:
+      summary: PATCH|PUT /auth/oauth/applications/:id
+      tags:
+      - Applications
+      operationId: PlaceOS::Auth::Applications_update_2
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Applications.Record'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerrors-u00003A-u000020Array-oString-c-c'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/authority:
+    summary: Mirrors `Auth::AuthoritiesController#current` from the Ruby service.
+    description: 'Mirrors `Auth::AuthoritiesController#current` from the Ruby service.
+
+      Doubles as a health probe: when `?health` is set on the query string
+
+      we always return 200 OK, so upstream load balancers can hit this
+
+      endpoint regardless of which host header they send.'
+    get:
+      tags:
+      - Authorities
+      operationId: PlaceOS::Auth::Authorities_current
+      parameters:
+      - name: health
+        in: query
+        description: respond 200 OK without querying the database; used as a liveness
+          probe
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/-oPlaceOS.Auth.Authorities.AuthorityResponse-pNil-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/authorized_applications:
+    summary: The signed-in user's own authorized applications, matching
+    description: 'The signed-in user''s own authorized applications, matching
+
+      Doorkeeper''s `/auth/oauth/authorized_applications` (PPT-2536): the
+
+      apps they hold live tokens for, and the ability to revoke an app''s
+
+      access. Session-gated (the resource owner), not admin-gated.'
+    get:
+      summary: GET /auth/oauth/authorized_applications
+      tags:
+      - AuthorizedApplications
+      operationId: PlaceOS::Auth::AuthorizedApplications_index
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlaceOS.Auth.AuthorizedApplications.Summary'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/authorized_applications/{id}:
+    summary: The signed-in user's own authorized applications, matching
+    description: 'The signed-in user''s own authorized applications, matching
+
+      Doorkeeper''s `/auth/oauth/authorized_applications` (PPT-2536): the
+
+      apps they hold live tokens for, and the ability to revoke an app''s
+
+      access. Session-gated (the resource owner), not admin-gated.'
+    delete:
+      summary: DELETE /auth/oauth/authorized_applications/:id
+      description: 'DELETE /auth/oauth/authorized_applications/:id
+
+
+        `:id` is the application id. Revokes every live token the current
+
+        user holds for that application.'
+      tags:
+      - AuthorizedApplications
+      operationId: PlaceOS::Auth::AuthorizedApplications_destroy
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/failure:
+    summary: OAuth / SAML callback failure landing page. OmniAuth (Ruby) and
+    description: 'OAuth / SAML callback failure landing page. OmniAuth (Ruby) and
+
+      `multi_auth` (Crystal) bounce here when a provider rejects the
+
+      authentication round-trip; the page just tells the user it didn''t
+
+      work and lets the front-end''s framing decide what to do next.'
+    get:
+      summary: 'NB: 200 OK, not 401 — matches the Ruby service so any client'
+      description: 'NB: 200 OK, not 401 — matches the Ruby service so any client
+
+        automation that hard-codes `if response.status == 200` keeps
+
+        working at cutover. The status doesn''t carry semantics for any
+
+        caller; the body content is what counts.'
+      tags:
+      - Failures
+      operationId: PlaceOS::Auth::Failures_show
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/String'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/token:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      summary: '`/auth/oauth/token` is the legacy Doorkeeper mount point; kept as
+        an'
+      description: '`/auth/oauth/token` is the legacy Doorkeeper mount point; kept
+        as an
+
+        alias so clients that hardcode the documented path keep working.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_token
+      parameters:
+      - name: grant_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_secret
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: redirect_uri
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: refresh_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: scope
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_verifier
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: subject_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: subject_token_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: requested_token_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: audience
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.TokenResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/token:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      summary: '`/auth/oauth/token` is the legacy Doorkeeper mount point; kept as
+        an'
+      description: '`/auth/oauth/token` is the legacy Doorkeeper mount point; kept
+        as an
+
+        alias so clients that hardcode the documented path keep working.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_token_2
+      parameters:
+      - name: grant_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_secret
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: redirect_uri
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: refresh_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: scope
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_verifier
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: subject_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: subject_token_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: requested_token_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: audience
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.TokenResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/authorize:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: Authorization endpoint. Requires the user to be signed in via the
+      description: 'Authorization endpoint. Requires the user to be signed in via
+        the
+
+        cookie session. If not, we stash the original URL on the session
+
+        and bounce through `/auth/login`.
+
+
+        Clients that require consent (self registered MCP clients, and apps
+
+        without `skip_authorization`) are shown a consent screen; its form
+
+        posts back here with `consent` and a `consent_token`. Apps that skip
+
+        authorization are granted immediately, as the legacy service did, and
+
+        Doorkeeper''s `POST authorize` (the consent submit) still grants for
+
+        them exactly as the `GET` does.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize
+      parameters:
+      - name: response_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: scope
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge_method
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: Authorization endpoint. Requires the user to be signed in via the
+      description: 'Authorization endpoint. Requires the user to be signed in via
+        the
+
+        cookie session. If not, we stash the original URL on the session
+
+        and bounce through `/auth/login`.
+
+
+        Clients that require consent (self registered MCP clients, and apps
+
+        without `skip_authorization`) are shown a consent screen; its form
+
+        posts back here with `consent` and a `consent_token`. Apps that skip
+
+        authorization are granted immediately, as the legacy service did, and
+
+        Doorkeeper''s `POST authorize` (the consent submit) still grants for
+
+        them exactly as the `GET` does.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize_3
+      parameters:
+      - name: response_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: scope
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge_method
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    delete:
+      summary: The deny half of the authorization endpoint. Doorkeeper redirected
+      description: 'The deny half of the authorization endpoint. Doorkeeper redirected
+
+        back to the client with `error=access_denied`. Requires a session
+
+        like the grant path.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_deny_authorize
+      parameters:
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: response_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/authorize:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: Authorization endpoint. Requires the user to be signed in via the
+      description: 'Authorization endpoint. Requires the user to be signed in via
+        the
+
+        cookie session. If not, we stash the original URL on the session
+
+        and bounce through `/auth/login`.
+
+
+        Clients that require consent (self registered MCP clients, and apps
+
+        without `skip_authorization`) are shown a consent screen; its form
+
+        posts back here with `consent` and a `consent_token`. Apps that skip
+
+        authorization are granted immediately, as the legacy service did, and
+
+        Doorkeeper''s `POST authorize` (the consent submit) still grants for
+
+        them exactly as the `GET` does.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize_2
+      parameters:
+      - name: response_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: scope
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge_method
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: Authorization endpoint. Requires the user to be signed in via the
+      description: 'Authorization endpoint. Requires the user to be signed in via
+        the
+
+        cookie session. If not, we stash the original URL on the session
+
+        and bounce through `/auth/login`.
+
+
+        Clients that require consent (self registered MCP clients, and apps
+
+        without `skip_authorization`) are shown a consent screen; its form
+
+        posts back here with `consent` and a `consent_token`. Apps that skip
+
+        authorization are granted immediately, as the legacy service did, and
+
+        Doorkeeper''s `POST authorize` (the consent submit) still grants for
+
+        them exactly as the `GET` does.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize_4
+      parameters:
+      - name: response_type
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: scope
+        in: query
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: code_challenge_method
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: consent_token
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    delete:
+      summary: The deny half of the authorization endpoint. Doorkeeper redirected
+      description: 'The deny half of the authorization endpoint. Doorkeeper redirected
+
+        back to the client with `error=access_denied`. Requires a session
+
+        like the grant path.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_deny_authorize_2
+      parameters:
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: response_type
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/authorize/native:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: Out-of-band code display. When a client's redirect_uri is the OOB
+      description: 'Out-of-band code display. When a client''s redirect_uri is the
+        OOB
+
+        URN, the grant redirect lands here and the page shows the code for
+
+        the user to copy. No OOB clients exist in current deployments, but
+
+        the route is served for parity. Requires a session.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize_native
+      parameters:
+      - name: code
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/authorize/native:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: Out-of-band code display. When a client's redirect_uri is the OOB
+      description: 'Out-of-band code display. When a client''s redirect_uri is the
+        OOB
+
+        URN, the grant redirect lands here and the page shows the code for
+
+        the user to copy. No OOB clients exist in current deployments, but
+
+        the route is served for parity. Requires a session.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_authorize_native_2
+      parameters:
+      - name: code
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/revoke:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      summary: RFC 7009 token revocation. Always responds 200, including when
+      description: 'RFC 7009 token revocation. Always responds 200, including when
+
+        the token is unknown / malformed / already revoked, so the
+
+        client can''t infer state by side channel.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_revoke
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: token_type_hint
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/revoke:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      summary: RFC 7009 token revocation. Always responds 200, including when
+      description: 'RFC 7009 token revocation. Always responds 200, including when
+
+        the token is unknown / malformed / already revoked, so the
+
+        client can''t infer state by side channel.'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_revoke_2
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: token_type_hint
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/introspect:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_introspect
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: token_type_hint
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.IntrospectionResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/introspect:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    post:
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_introspect_2
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: token_type_hint
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.IntrospectionResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/token/info:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_token_info
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.TokenInfoResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/token/info:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_token_info_2
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.TokenInfoResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/userinfo:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: OIDC `userinfo`. The Bearer token's `sub` claim points at the
+      description: 'OIDC `userinfo`. The Bearer token''s `sub` claim points at the
+
+        `User` row; we surface the same claim set the ID token would
+
+        have (see `AuthlyAdapter::Owner#id_token`).
+
+
+        OIDC Core §5.3 requires both GET and POST; Doorkeeper mounted both
+
+        verbs, so both are served for wire parity (PPT-2536).'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_userinfo
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hash-oString-nInt64-pString-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: OIDC `userinfo`. The Bearer token's `sub` claim points at the
+      description: 'OIDC `userinfo`. The Bearer token''s `sub` claim points at the
+
+        `User` row; we surface the same claim set the ID token would
+
+        have (see `AuthlyAdapter::Owner#id_token`).
+
+
+        OIDC Core §5.3 requires both GET and POST; Doorkeeper mounted both
+
+        verbs, so both are served for wire parity (PPT-2536).'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_userinfo_3
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hash-oString-nInt64-pString-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/userinfo:
+    summary: OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+    description: 'OAuth 2.0 / OpenID Connect server endpoints. Wraps the `authly`
+
+      shard''s library API (we don''t mount `Authly::Handler` because we
+
+      want the legacy `/auth/...` prefix, not `/oauth/...`).
+
+
+      Every endpoint is served at both the short `/auth/*` path and the
+
+      legacy Doorkeeper `/auth/oauth/*` mount point (stacked route
+
+      annotations), so the service is a drop-in for the Rails auth.'
+    get:
+      summary: OIDC `userinfo`. The Bearer token's `sub` claim points at the
+      description: 'OIDC `userinfo`. The Bearer token''s `sub` claim points at the
+
+        `User` row; we surface the same claim set the ID token would
+
+        have (see `AuthlyAdapter::Owner#id_token`).
+
+
+        OIDC Core §5.3 requires both GET and POST; Doorkeeper mounted both
+
+        verbs, so both are served for wire parity (PPT-2536).'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_userinfo_2
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hash-oString-nInt64-pString-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: OIDC `userinfo`. The Bearer token's `sub` claim points at the
+      description: 'OIDC `userinfo`. The Bearer token''s `sub` claim points at the
+
+        `User` row; we surface the same claim set the ID token would
+
+        have (see `AuthlyAdapter::Owner#id_token`).
+
+
+        OIDC Core §5.3 requires both GET and POST; Doorkeeper mounted both
+
+        verbs, so both are served for wire parity (PPT-2536).'
+      tags:
+      - OAuth
+      operationId: PlaceOS::Auth::OAuth_userinfo_4
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hash-oString-nInt64-pString-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.OAuth.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /.well-known/openid-configuration:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: 'Rails mounted the discovery document at four paths: the two spec'
+      description: 'Rails mounted the discovery document at four paths: the two spec
+
+        locations at the domain root, plus `/auth/.well-known/*` variants
+
+        from Doorkeeper''s `scope :auth` mount (RFC 8414 also aliases the
+
+        OIDC document as `oauth-authorization-server`). All four serve the
+
+        identical document for wire parity (PPT-2536).
+
+
+        NOTE: at the Ruby service''s locked gem versions (doorkeeper-
+
+        openid_connect 1.10.1) these endpoints 500 due to an issuer-block
+
+        arity regression; this implements the *intended* behaviour.'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_openid_configuration
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.Response'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /.well-known/oauth-authorization-server:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: 'Rails mounted the discovery document at four paths: the two spec'
+      description: 'Rails mounted the discovery document at four paths: the two spec
+
+        locations at the domain root, plus `/auth/.well-known/*` variants
+
+        from Doorkeeper''s `scope :auth` mount (RFC 8414 also aliases the
+
+        OIDC document as `oauth-authorization-server`). All four serve the
+
+        identical document for wire parity (PPT-2536).
+
+
+        NOTE: at the Ruby service''s locked gem versions (doorkeeper-
+
+        openid_connect 1.10.1) these endpoints 500 due to an issuer-block
+
+        arity regression; this implements the *intended* behaviour.'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_openid_configuration_2
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.Response'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/.well-known/openid-configuration:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: 'Rails mounted the discovery document at four paths: the two spec'
+      description: 'Rails mounted the discovery document at four paths: the two spec
+
+        locations at the domain root, plus `/auth/.well-known/*` variants
+
+        from Doorkeeper''s `scope :auth` mount (RFC 8414 also aliases the
+
+        OIDC document as `oauth-authorization-server`). All four serve the
+
+        identical document for wire parity (PPT-2536).
+
+
+        NOTE: at the Ruby service''s locked gem versions (doorkeeper-
+
+        openid_connect 1.10.1) these endpoints 500 due to an issuer-block
+
+        arity regression; this implements the *intended* behaviour.'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_openid_configuration_3
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.Response'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/.well-known/oauth-authorization-server:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: 'Rails mounted the discovery document at four paths: the two spec'
+      description: 'Rails mounted the discovery document at four paths: the two spec
+
+        locations at the domain root, plus `/auth/.well-known/*` variants
+
+        from Doorkeeper''s `scope :auth` mount (RFC 8414 also aliases the
+
+        OIDC document as `oauth-authorization-server`). All four serve the
+
+        identical document for wire parity (PPT-2536).
+
+
+        NOTE: at the Ruby service''s locked gem versions (doorkeeper-
+
+        openid_connect 1.10.1) these endpoints 500 due to an issuer-block
+
+        arity regression; this implements the *intended* behaviour.'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_openid_configuration_4
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.Response'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /.well-known/oauth-protected-resource/{resource_path}:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: the glob also matches the bare path (LuckyRouter globs match zero segments)
+      tags: &1
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_protected_resource
+      parameters:
+      - name: resource_path
+        in: path
+        required: true
+        schema:
+          type: string
+      responses: &2
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.ProtectedResource'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /.well-known/oauth-protected-resource:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: the glob also matches the bare path (LuckyRouter globs match zero segments)
+      tags: *1
+      operationId: PlaceOS::Auth::Discovery_protected_resource_without_resource_path
+      parameters: []
+      responses: *2
+  /.well-known/webfinger:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: '`resource` is taken as optional then validated by hand: the router'
+      description: '`resource` is taken as optional then validated by hand: the router
+
+        maps missing required params to 422, but Rails'' ParameterMissing
+
+        responded 400 — parity wins (PPT-2536).'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_webfinger
+      parameters:
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.WebFingerResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/.well-known/webfinger:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      summary: '`resource` is taken as optional then validated by hand: the router'
+      description: '`resource` is taken as optional then validated by hand: the router
+
+        maps missing required params to 422, but Rails'' ParameterMissing
+
+        responded 400 — parity wins (PPT-2536).'
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_webfinger_2
+      parameters:
+      - name: resource
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.WebFingerResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/oauth/discovery/keys:
+    summary: OIDC discovery document. Spec requires this lives at the root,
+    description: 'OIDC discovery document. Spec requires this lives at the root,
+
+      so it can''t be a route on `OAuth` (which is mounted at `/auth`).'
+    get:
+      tags:
+      - Discovery
+      operationId: PlaceOS::Auth::Discovery_keys
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Discovery.KeysResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/{provider}:
+    summary: 'External-IdP round-trip handlers. Two routes per provider:'
+    description: "External-IdP round-trip handlers. Two routes per provider:\n\n  *
+      GET  `/auth/:provider`            — kickoff: build redirect_uri,\n                                        look
+      up the strat, store the\n                                        CSRF state,
+      redirect to the IdP.\n  * GET  `/auth/:provider/callback`   — consume: validate
+      state, ask\n                                        multi_auth to exchange code\n
+      \                                       for user, map to a local row,\n                                        set
+      session, redirect home.\n\nThe path-style alias `/auth/:provider/callback/:strategy`
+      (used by\nOAuth providers that don't preserve query strings) just rewrites\n`:strategy`
+      into the `id` param before delegating to the canonical\naction."
+    get:
+      tags:
+      - ProviderCallbacks
+      operationId: PlaceOS::Auth::ProviderCallbacks_initiate
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: query
+        description: OAuth strategy id (oauth_strat primary key)
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/{provider}/callback:
+    summary: 'External-IdP round-trip handlers. Two routes per provider:'
+    description: "External-IdP round-trip handlers. Two routes per provider:\n\n  *
+      GET  `/auth/:provider`            — kickoff: build redirect_uri,\n                                        look
+      up the strat, store the\n                                        CSRF state,
+      redirect to the IdP.\n  * GET  `/auth/:provider/callback`   — consume: validate
+      state, ask\n                                        multi_auth to exchange code\n
+      \                                       for user, map to a local row,\n                                        set
+      session, redirect home.\n\nThe path-style alias `/auth/:provider/callback/:strategy`
+      (used by\nOAuth providers that don't preserve query strings) just rewrites\n`:strategy`
+      into the `id` param before delegating to the canonical\naction."
+    get:
+      tags:
+      - ProviderCallbacks
+      operationId: PlaceOS::Auth::ProviderCallbacks_callback
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: query
+        description: OAuth strategy id (oauth_strat primary key)
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      tags:
+      - ProviderCallbacks
+      operationId: PlaceOS::Auth::ProviderCallbacks_callback_2
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: query
+        description: OAuth strategy id (oauth_strat primary key)
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/{provider}/callback/{strategy}:
+    summary: 'External-IdP round-trip handlers. Two routes per provider:'
+    description: "External-IdP round-trip handlers. Two routes per provider:\n\n  *
+      GET  `/auth/:provider`            — kickoff: build redirect_uri,\n                                        look
+      up the strat, store the\n                                        CSRF state,
+      redirect to the IdP.\n  * GET  `/auth/:provider/callback`   — consume: validate
+      state, ask\n                                        multi_auth to exchange code\n
+      \                                       for user, map to a local row,\n                                        set
+      session, redirect home.\n\nThe path-style alias `/auth/:provider/callback/:strategy`
+      (used by\nOAuth providers that don't preserve query strings) just rewrites\n`:strategy`
+      into the `id` param before delegating to the canonical\naction."
+    get:
+      summary: Path-style alias used by IdPs that don't preserve query strings on
+      description: 'Path-style alias used by IdPs that don''t preserve query strings
+        on
+
+        the callback (Azure B2C in particular). Just folds `:strategy`
+
+        into the `id` argument before delegating.'
+      tags:
+      - ProviderCallbacks
+      operationId: PlaceOS::Auth::ProviderCallbacks_callback_alias
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: strategy
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+    post:
+      summary: Path-style alias used by IdPs that don't preserve query strings on
+      description: 'Path-style alias used by IdPs that don''t preserve query strings
+        on
+
+        the callback (Azure B2C in particular). Just folds `:strategy`
+
+        into the `id` argument before delegating.'
+      tags:
+      - ProviderCallbacks
+      operationId: PlaceOS::Auth::ProviderCallbacks_callback_alias_2
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: strategy
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: state
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/register:
+    summary: OAuth 2.0 Dynamic Client Registration (RFC 7591).
+    description: 'OAuth 2.0 Dynamic Client Registration (RFC 7591).
+
+
+      Lets MCP clients (and other native or browser apps) register themselves
+
+      without an administrator. Only public clients are accepted: they hold no
+
+      secret, must use PKCE (S256) and every authorization they request is shown
+
+      to the user on a consent screen.
+
+
+      A public client''s registration is just its metadata, so a request matching
+      an
+
+      existing registration (same client name and redirect URIs) returns that
+
+      client. Every user of a client such as Claude or ChatGPT shares one
+
+      registration. Only new client identities count towards `MCP_REGISTRATION_LIMIT`
+
+      per hour. That''s a global limit: hosted clients register from shared IPs, so
+      a
+
+      per-IP limit would refuse their users.'
+    post:
+      summary: Registers a public client.
+      tags:
+      - Registrations
+      operationId: PlaceOS::Auth::Registrations_register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOS.Auth.Registrations.ClientMetadata'
+          application/x-www-form-urlencoded:
+            schema:
+              type: string
+              format: binary
+        required: true
+      parameters: []
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.ClientInformation'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.RegistrationError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.RegistrationError'
+  /auth/oauth/register:
+    summary: OAuth 2.0 Dynamic Client Registration (RFC 7591).
+    description: 'OAuth 2.0 Dynamic Client Registration (RFC 7591).
+
+
+      Lets MCP clients (and other native or browser apps) register themselves
+
+      without an administrator. Only public clients are accepted: they hold no
+
+      secret, must use PKCE (S256) and every authorization they request is shown
+
+      to the user on a consent screen.
+
+
+      A public client''s registration is just its metadata, so a request matching
+      an
+
+      existing registration (same client name and redirect URIs) returns that
+
+      client. Every user of a client such as Claude or ChatGPT shares one
+
+      registration. Only new client identities count towards `MCP_REGISTRATION_LIMIT`
+
+      per hour. That''s a global limit: hosted clients register from shared IPs, so
+      a
+
+      per-IP limit would refuse their users.'
+    post:
+      summary: Registers a public client.
+      tags:
+      - Registrations
+      operationId: PlaceOS::Auth::Registrations_register_2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOS.Auth.Registrations.ClientMetadata'
+          application/x-www-form-urlencoded:
+            schema:
+              type: string
+              format: binary
+        required: true
+      parameters: []
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.ClientInformation'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.RegistrationError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Registrations.RegistrationError'
+  /auth/healthz:
+    summary: Liveness/readiness probe. Auth-specific endpoints land in their own
+    description: 'Liveness/readiness probe. Auth-specific endpoints land in their
+      own
+
+      controllers; this exists only to give the server a route to bind to
+
+      while the rest of the controllers are being ported.'
+    get:
+      tags:
+      - Root
+      operationId: PlaceOS::Auth::Root_healthz
+      parameters: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamedTuple-ostatus-u00003A-u000020String-napp-u00003A-u000020String-nversion-u00003A-u000020String-c'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/signin:
+    summary: Local + OAuth/SAML callback session lifecycle.
+    description: 'Local + OAuth/SAML callback session lifecycle.
+
+
+      OAuth and SAML callbacks (the `:provider/callback` routes) are
+
+      implemented in Phase 4 alongside the `multi_auth` + `multi_auth_saml`
+
+      wiring; this file currently covers `signin`, `destroy`, and `new`.'
+    post:
+      summary: Local password login. Accepts either a JSON body or
+      description: 'Local password login. Accepts either a JSON body or
+
+        `application/x-www-form-urlencoded` form post — action-controller
+
+        picks the right parser based on `Content-Type`.'
+      tags:
+      - Sessions
+      operationId: PlaceOS::Auth::Sessions_signin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOS.Auth.Sessions.SigninBody'
+          application/x-www-form-urlencoded:
+            schema:
+              type: string
+              format: binary
+        required: true
+      parameters: []
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/logout:
+    summary: Local + OAuth/SAML callback session lifecycle.
+    description: 'Local + OAuth/SAML callback session lifecycle.
+
+
+      OAuth and SAML callbacks (the `:provider/callback` routes) are
+
+      implemented in Phase 4 alongside the `multi_auth` + `multi_auth_saml`
+
+      wiring; this file currently covers `signin`, `destroy`, and `new`.'
+    get:
+      tags:
+      - Sessions
+      operationId: PlaceOS::Auth::Sessions_destroy
+      parameters:
+      - name: continue
+        in: query
+        description: post-logout redirect target
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/login:
+    summary: Local + OAuth/SAML callback session lifecycle.
+    description: 'Local + OAuth/SAML callback session lifecycle.
+
+
+      OAuth and SAML callbacks (the `:provider/callback` routes) are
+
+      implemented in Phase 4 alongside the `multi_auth` + `multi_auth_saml`
+
+      wiring; this file currently covers `signin`, `destroy`, and `new`.'
+    get:
+      summary: 'Inline login dispatcher. Behaviour mirrors the Ruby service:'
+      description: "Inline login dispatcher. Behaviour mirrors the Ruby service:\n\n
+        \ * if `continue` points at a non-html asset, 400 (assets must\n    not be
+        reached via the auth redirect dance);\n  * if `continue` carries an `api-key`
+        query/fragment param and\n    the key validates, fall through to the continue
+        target\n    directly (issuing the nginx-validated asset-access cookie);\n
+        \ * otherwise redirect to `/auth/:provider?id=...` (when\n    `provider` given)
+        or to the authority's configured login URL."
+      tags:
+      - Sessions
+      operationId: PlaceOS::Auth::Sessions_new
+      parameters:
+      - name: continue
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: provider
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      - name: id
+        in: query
+        schema:
+          anyOf:
+          - type: "null"
+          - type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+  /auth/signup:
+    summary: Manual signup endpoint (Doorkeeper/Ruby route `auth/signups#create`).
+    description: 'Manual signup endpoint (Doorkeeper/Ruby route `auth/signups#create`).
+
+
+      The Ruby service only completed a signup when the request carried a
+
+      valid short-lived `social` cookie (set mid-callback for a not-yet-
+
+      existing OAuth user); every other request got 403. auth.cr creates
+
+      OAuth users inline in the provider callback and never issues that
+
+      cookie, so the "no valid social cookie" branch is the only reachable
+
+      one — this endpoint therefore always answers 403, which is exactly
+
+      what the legacy service returned for the same conditions.
+
+
+      The route exists for wire parity (PPT-2536). Resurrecting the actual
+
+      user-creation path is a separate product decision — see
+
+      auth_migration/parity_matrix.md.'
+    post:
+      tags:
+      - Signups
+      operationId: PlaceOS::Auth::Signups_create
+      parameters: []
+      responses:
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.CommonError'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "422":
+          description: Unprocessable Entity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ParameterError'
+        "406":
+          description: Not Acceptable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+        "415":
+          description: Unsupported Media Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceOS.Auth.Application.ContentError'
+components:
+  schemas:
+    PlaceOS.Auth.Applications.Record:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: Int64
+        name:
+          type: string
+        uid:
+          type: string
+        secret:
+          type: string
+        redirect_uri:
+          type: string
+        scopes:
+          type: string
+        confidential:
+          type: boolean
+      required:
+      - id
+      - name
+      - uid
+      - secret
+      - redirect_uri
+      - scopes
+      - confidential
+      description: 'Full record — the owner view Doorkeeper serialised for show/create/
+
+        update, including the plaintext secret (application secrets are not
+
+        hashed at rest).'
+    PlaceOS.Auth.Authorities.AuthorityResponse:
+      type: object
+      properties:
+        id:
+          anyOf:
+          - type: "null"
+          - type: string
+        name:
+          type: string
+        description:
+          type: string
+        domain:
+          type: string
+        login_url:
+          type: string
+        logout_url:
+          type: string
+        email_domains:
+          type: array
+          items:
+            type: string
+        config:
+          type: object
+          additionalProperties:
+            type: object
+        updated_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
+        version:
+          type: string
+        production:
+          type: boolean
+        session:
+          type: boolean
+        token_valid:
+          type: boolean
+      required:
+      - name
+      - description
+      - domain
+      - login_url
+      - logout_url
+      - email_domains
+      - config
+      - version
+      - production
+      - session
+      - token_valid
+      description: 'JSON payload returned for a recognised authority. Mirrors the
+        Ruby
+
+        `authority.as_json(except: [created_at, internals])` plus the
+
+        `session` / `token_valid` / `production` / `version` decorations.'
+    PlaceOS.Auth.AuthorizedApplications.Summary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: Int64
+        name:
+          type: string
+        uid:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - id
+      - name
+      description: 'Public application shape — the non-owner view (id, name, created_at,
+
+        plus uid for non-confidential apps).'
+    PlaceOS.Auth.OAuth.TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+          format: Int64
+        created_at:
+          type: integer
+          format: Int64
+        refresh_token:
+          anyOf:
+          - type: "null"
+          - type: string
+        scope:
+          anyOf:
+          - type: "null"
+          - type: string
+        id_token:
+          anyOf:
+          - type: "null"
+          - type: string
+        issued_token_type:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - access_token
+      - token_type
+      - expires_in
+      - created_at
+      description: 'Standard OAuth token response. We don''t serialise Authly''s
+
+        `AccessToken` directly because it leaks the `sub` claim and the
+
+        `jti` into the public response.'
+    PlaceOS.Auth.OAuth.IntrospectionResponse:
+      type: object
+      properties:
+        active:
+          type: boolean
+        scope:
+          anyOf:
+          - type: "null"
+          - type: string
+        client_id:
+          anyOf:
+          - type: "null"
+          - type: string
+        token_type:
+          anyOf:
+          - type: "null"
+          - type: string
+        iat:
+          anyOf:
+          - type: integer
+            format: Int64
+          - type: "null"
+        exp:
+          anyOf:
+          - type: integer
+            format: Int64
+          - type: "null"
+      required:
+      - active
+      description: 'OAuth2 token introspection. The Ruby service (Doorkeeper) required
+
+        the *caller* to authenticate — either with client credentials
+
+        (HTTP Basic or `client_id`/`client_secret` params) or with a
+
+        different bearer access token — and only revealed a token''s state
+
+        to the client that owns it. We reproduce that: an unauthenticated
+
+        introspection endpoint would leak token validity to anyone.'
+    PlaceOS.Auth.OAuth.TokenInfoResponse:
+      type: object
+      properties:
+        resource_owner_id:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        expires_in:
+          type: integer
+          format: Int64
+        application:
+          $ref: '#/components/schemas/PlaceOS.Auth.OAuth.TokenInfoResponse.Application'
+        created_at:
+          type: integer
+          format: Int64
+      required:
+      - resource_owner_id
+      - scope
+      - expires_in
+      - application
+      - created_at
+      description: 'Returns metadata about the presented bearer access token, matching
+
+        Doorkeeper''s `token_info#show` shape.'
+    PlaceOS.Auth.Discovery.Response:
+      type: object
+      properties:
+        issuer:
+          type: string
+        authorization_endpoint:
+          type: string
+        token_endpoint:
+          type: string
+        userinfo_endpoint:
+          type: string
+        revocation_endpoint:
+          type: string
+        end_session_endpoint:
+          anyOf:
+          - type: "null"
+          - type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+        claims_supported:
+          type: array
+          items:
+            type: string
+        jwks_uri:
+          type: string
+        introspection_endpoint:
+          type: string
+        registration_endpoint:
+          type: string
+        client_id_metadata_document_supported:
+          type: boolean
+      required:
+      - issuer
+      - authorization_endpoint
+      - token_endpoint
+      - userinfo_endpoint
+      - revocation_endpoint
+      - scopes_supported
+      - response_types_supported
+      - grant_types_supported
+      - subject_types_supported
+      - id_token_signing_alg_values_supported
+      - token_endpoint_auth_methods_supported
+      - code_challenge_methods_supported
+      - claims_supported
+      - jwks_uri
+      - introspection_endpoint
+      - registration_endpoint
+      - client_id_metadata_document_supported
+      description: See `OAuth` for the rest of the OAuth2/OIDC surface area.
+    PlaceOS.Auth.Discovery.ProtectedResource:
+      type: object
+      properties:
+        resource:
+          type: string
+        authorization_servers:
+          type: array
+          items:
+            type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        bearer_methods_supported:
+          type: array
+          items:
+            type: string
+      required:
+      - resource
+      - authorization_servers
+      - scopes_supported
+      - bearer_methods_supported
+      description: 'RFC 9728 OAuth protected resource metadata, for the resource servers
+        on
+
+        this host. nginx routes `/.well-known/*` here, so this is served on their
+
+        behalf, e.g. rest-api''s MCP endpoint at
+
+        `/.well-known/oauth-protected-resource/api/engine/v2/mcp`. MCP clients
+
+        follow it to discover this authorization server.'
+    PlaceOS.Auth.Discovery.WebFingerResponse:
+      type: object
+      properties:
+        subject:
+          type: string
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceOS.Auth.Discovery.WebFingerLink'
+      required:
+      - subject
+      - links
+    PlaceOS.Auth.Discovery.KeysResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceOS.Auth.JWKS.Key'
+      required:
+      - keys
+      description: 'JWKS (RFC 7517) — the verification key for our RS256 tokens, at
+
+        Doorkeeper-openid_connect''s mount point. Derived from the same key
+
+        `JWT_SECRET` configures for signing.'
+    PlaceOS.Auth.Registrations.ClientMetadata:
+      type: object
+      properties:
+        redirect_uris:
+          anyOf:
+          - type: "null"
+          - type: array
+            items:
+              type: string
+        client_name:
+          anyOf:
+          - type: "null"
+          - type: string
+        token_endpoint_auth_method:
+          anyOf:
+          - type: "null"
+          - type: string
+        grant_types:
+          anyOf:
+          - type: "null"
+          - type: array
+            items:
+              type: string
+        response_types:
+          anyOf:
+          - type: "null"
+          - type: array
+            items:
+              type: string
+        scope:
+          anyOf:
+          - type: "null"
+          - type: string
+      description: RFC 7591 §2 client metadata
+    PlaceOS.Auth.Registrations.ClientInformation:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_id_issued_at:
+          type: integer
+          format: Int64
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        grant_types:
+          type: array
+          items:
+            type: string
+        response_types:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_method:
+          type: string
+        scope:
+          type: string
+      required:
+      - client_id
+      - client_id_issued_at
+      - client_name
+      - redirect_uris
+      - grant_types
+      - response_types
+      - token_endpoint_auth_method
+      - scope
+      description: RFC 7591 §3.2.1 client information response
+    PlaceOS.Auth.Sessions.SigninBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        continue:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - email
+      - password
+    PlaceOS.Auth.Application.CommonError:
+      type: object
+      properties:
+        error:
+          anyOf:
+          - type: "null"
+          - type: string
+        backtrace:
+          anyOf:
+          - type: "null"
+          - type: array
+            items:
+              type: string
+      description: 'Generic JSON error payload. Same shape as rest-api so clients
+
+        don''t need to branch on which service responded.'
+    PlaceOS.Auth.Application.ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+        failures:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              reason:
+                type: string
+            required:
+            - field
+            - reason
+      required:
+      - error
+      - failures
+    PlaceOS.Auth.Application.ContentError:
+      type: object
+      properties:
+        error:
+          type: string
+        accepts:
+          anyOf:
+          - type: "null"
+          - type: array
+            items:
+              type: string
+      required:
+      - error
+    PlaceOS.Auth.Application.ParameterError:
+      type: object
+      properties:
+        error:
+          type: string
+        parameter:
+          anyOf:
+          - type: "null"
+          - type: string
+        restriction:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - error
+    PlaceOS.Auth.OAuth.ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - error
+      description: 'OAuth-standard error envelope (RFC 6749 §5.2). HTTP status is
+
+        carried separately on the response.'
+    PlaceOS.Auth.Registrations.RegistrationError:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+      required:
+      - error
+      - error_description
+      description: RFC 7591 §3.2.2 error response
+    PlaceOS.Auth.OAuth.TokenInfoResponse.Application:
+      type: object
+      properties:
+        uid:
+          anyOf:
+          - type: "null"
+          - type: string
+    PlaceOS.Auth.Discovery.WebFingerLink:
+      type: object
+      properties:
+        rel:
+          type: string
+        href:
+          type: string
+      required:
+      - rel
+      - href
+      description: 'OIDC discovery §2: WebFinger. The legacy service echoed the
+
+        `resource` parameter back untouched with a single issuer link;
+
+        requests without `resource` fail with 400.'
+    PlaceOS.Auth.JWKS.Key:
+      type: object
+      properties:
+        kty:
+          type: string
+        n:
+          type: string
+        e:
+          type: string
+        kid:
+          type: string
+        use:
+          type: string
+        alg:
+          type: string
+      required:
+      - kty
+      - n
+      - e
+      - kid
+      - use
+      - alg
+    -oPlaceOS.Auth.Authorities.AuthorityResponse-pNil-c:
+      anyOf:
+      - $ref: '#/components/schemas/PlaceOS.Auth.Authorities.AuthorityResponse'
+      - type: "null"
+    String:
+      type: string
+    Hash-oString-nInt64-pString-c:
+      type: object
+      additionalProperties:
+        anyOf:
+        - type: integer
+          format: Int64
+        - type: string
+    NamedTuple-ostatus-u00003A-u000020String-napp-u00003A-u000020String-nversion-u00003A-u000020String-c:
+      type: object
+      properties:
+        status:
+          type: string
+        app:
+          type: string
+        version:
+          type: string
+      required:
+      - status
+      - app
+      - version
+    NamedTuple-oerrors-u00003A-u000020Array-oString-c-c:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+      - errors
+    NamedTuple-oerror-u00003A-u000020String-nerror_description-u00003A-u000020String-pNil-c:
+      type: object
+      properties:
+        error:
+          type: string
+        error_description:
+          anyOf:
+          - type: "null"
+          - type: string
+      required:
+      - error

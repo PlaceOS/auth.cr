@@ -7,7 +7,7 @@ shards:
 
   action-controller:
     git: https://github.com/spider-gazelle/action-controller.git
-    version: 9.0.0
+    version: 9.1.1
 
   active-model:
     git: https://github.com/spider-gazelle/active-model.git
@@ -110,8 +110,8 @@ shards:
     version: 1.7.2
 
   lucky_router:
-    git: https://github.com/luckyframework/lucky_router.git
-    version: 0.6.2
+    git: https://github.com/stakach/lucky_router.git
+    version: 0.6.2+git.commit.78cbfda312ec638ed6e180b7842080d8bf37621a
 
   multi_auth:
     git: https://github.com/msa7/multi_auth.git
@@ -159,7 +159,7 @@ shards:
 
   placeos-models:
     git: https://github.com/placeos/models.git
-    version: 9.119.0
+    version: 9.119.4
 
   pool:
     git: https://github.com/ysbaddaden/pool.git

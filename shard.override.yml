@@ -5,3 +5,8 @@ dependencies:
   CrystalEmail:
     github: place-labs/CrystalEmail
     version: ~> 0.2
+
+  # Crystal 1.22 support, revert once place-labs/authly#2 is merged
+  authly:
+    github: stakach/authly
+    branch: fix/crystal-1.22-gcm

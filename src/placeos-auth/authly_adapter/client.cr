@@ -82,6 +82,9 @@ module PlaceOS::Auth::AuthlyAdapter
     # returning `false` here is the canonical rejection.
     ALLOWED_GRANT_TYPES = Set{
       "authorization_code",
+      # `response_type=token` on `/auth/authorize` (RFC 6749 §4.2); never
+      # reaches the token endpoint.
+      "implicit",
       "client_credentials",
       "refresh_token",
       # RFC 8693, Entra subject tokens only — see `Utils::EntraTokenExchange`.

@@ -80,19 +80,19 @@ module PlaceOS::Auth
     # --- AU-02: response_type ------------------------------------------
 
     describe "response_type (AU-02)" do
-      # ts-client and most OIDC SDKs can be configured to emit implicit or
+      # ts-client and most OIDC SDKs can be configured to emit OIDC or
       # hybrid response types; a misconfigured integration will send one.
-      # auth.cr implements `code` only, and the discovery document
-      # advertises `response_types_supported: ["code"]`. If any of these
-      # were silently honoured the caller would receive a bearer token in a
-      # URL fragment — the flow OAuth 2.1 removed and the project brief
-      # dropped alongside the password grant.
+      # auth.cr implements `code` and `token` (the implicit grant, pinned in
+      # `implicit_grant_spec.cr`), and the discovery document advertises
+      # `response_types_supported: ["code", "token"]`. No id_token is issued
+      # from the authorization endpoint, so every response type that asks
+      # for one is refused.
       #
       # `oauth_spec.cr` "rejects an unknown response_type" already covers
-      # `response_type=token`, but it sends `client_id=x`, which is not a
+      # `response_type=id_token`, but it sends `client_id=x`, which is not a
       # registered client — so its 400 is not attributable to the response
       # type. This case uses a fully valid, registered client and a control.
-      it "refuses implicit and hybrid response types on an otherwise valid request" do
+      it "refuses OIDC and hybrid response types on an otherwise valid request" do
         user, password = make_user.call
         app = make_app.call("https://au02.example/cb-#{Random.rand(999_999)}")
         redirect = app.redirect_uri.as(String)
@@ -110,7 +110,6 @@ module PlaceOS::Auth
         control.headers["Location"].should start_with "#{redirect}?code="
 
         {
-          "token",               # implicit
           "id_token",            # OIDC implicit
           "id_token token",      # OIDC implicit, both artifacts
           "code token",          # hybrid
@@ -118,6 +117,7 @@ module PlaceOS::Auth
           "code id_token token", # hybrid, everything
           "none",                # OIDC "no response"
           "CODE",                # case must not be normalised into `code`
+          "TOKEN",               # nor into `token`
         }.each do |response_type|
           result = authorize.call(cookie, {
             "response_type" => response_type,

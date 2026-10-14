@@ -307,7 +307,7 @@ module PlaceOS::Auth
         cookie = Spec.signin!(client, user, password)
 
         result = client.get(
-          "/auth/authorize?response_type=token&client_id=x&redirect_uri=https%3A%2F%2Fa%2Fcb",
+          "/auth/authorize?response_type=id_token&client_id=x&redirect_uri=https%3A%2F%2Fa%2Fcb",
           headers: HTTP::Headers{"Host" => "localhost", "Cookie" => cookie},
         )
         result.status_code.should eq 400
@@ -417,8 +417,9 @@ module PlaceOS::Auth
         body["userinfo_endpoint"].as_s.should end_with "/auth/oauth/userinfo"
         body["revocation_endpoint"].as_s.should end_with "/auth/oauth/revoke"
         body["grant_types_supported"].as_a.map(&.as_s).should_not contain "password"
-        body["grant_types_supported"].as_a.map(&.as_s).should_not contain "implicit"
+        body["grant_types_supported"].as_a.map(&.as_s).should contain "implicit"
         body["grant_types_supported"].as_a.map(&.as_s).should contain "authorization_code"
+        body["response_types_supported"].as_a.map(&.as_s).should eq ["code", "token"]
         body["id_token_signing_alg_values_supported"].as_a.map(&.as_s).should contain "RS256"
       end
     end

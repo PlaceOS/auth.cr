@@ -326,6 +326,11 @@ module PlaceOS::Auth
     # cookie session. If not, we stash the original URL on the session
     # and bounce through `/auth/login`.
     #
+    # `response_type=code` redirects with an authorization code in the
+    # query; `response_type=token` (the implicit grant, RFC 6749 §4.2)
+    # redirects with the access token in the fragment and never touches
+    # the token endpoint, see `implicit_redirect`.
+    #
     # Clients that require consent (self registered MCP clients, and apps
     # without `skip_authorization`) are shown a consent screen; its form
     # posts back here with `consent` and a `consent_token`. Apps that skip
@@ -356,12 +361,12 @@ module PlaceOS::Auth
         return
       end
 
-      # We only support `code` here. `token` (implicit flow) is
-      # deprecated by OAuth 2.1 and the project brief dropped it
-      # alongside the password grant.
-      if response_type != "code"
+      # Hybrid and OIDC response types are not served: no id_token is
+      # issued from this endpoint.
+      unless response_type.in?("code", "token")
         raise OAuthBadRequest.new("unsupported_response_type", "response_type=#{response_type}")
       end
+      implicit = response_type == "token"
 
       # the consent form posts every field, empty values are absent
       resource = resource.presence
@@ -371,7 +376,8 @@ module PlaceOS::Auth
       # An unknown client or unregistered redirect URI falls through to
       # `Authly.code`, which rejects it, so a consent screen is never shown
       # for (and nothing redirects to) an unverified client.
-      client = ::Authly.clients.as(AuthlyAdapter::Client).client_info(client_id)
+      clients = ::Authly.clients.as(AuthlyAdapter::Client)
+      client = clients.client_info(client_id)
 
       # a metadata document client we can't use, say why rather than authly's generic error
       if client.nil? && Utils::ClientMetadata.client_id?(client_id)
@@ -381,6 +387,25 @@ module PlaceOS::Auth
 
       validate_resource!(resource) if client
 
+      # Doorkeeper's default scope, as for every other user grant.
+      granted_scope = scope.presence || "public"
+
+      # The implicit grant has no token-endpoint step, so what the code flow
+      # checks at redemption is checked here, before any consent is asked for.
+      if implicit && client
+        unless clients.allowed_grant_type?(client_id, "implicit")
+          raise OAuthUnauthorized.new("unauthorized_client", "this client may not use the implicit grant")
+        end
+        unless clients.allowed_scopes?(client_id, granted_scope)
+          raise OAuthBadRequest.new("invalid_scope", "scope=#{granted_scope}")
+        end
+        # RFC 6749 §3.1.2: the redirect URI must not carry a fragment, the
+        # response travels in one.
+        if redirect_uri.includes?('#')
+          raise OAuthBadRequest.new("invalid_request", "redirect_uri must not contain a fragment")
+        end
+      end
+
       # Self registered clients are public: PKCE is the only thing standing
       # between an intercepted code and a token, so S256 is mandatory.
       if client && client.pkce_required? && !(code_challenge && code_challenge_method.try(&.upcase) == "S256")
@@ -388,7 +413,7 @@ module PlaceOS::Auth
       end
 
       if client && client.consent_required?
-        approval = {client_id, redirect_uri, scope, state || "", code_challenge || "", code_challenge_method || "", resource || ""}.to_a
+        approval = {response_type, client_id, redirect_uri, scope, state || "", code_challenge || "", code_challenge_method || "", resource || ""}.to_a
         session_iat = session[Utils::SessionHelper::SESSION_IAT_KEY]?.to_s
         user_id = user.id.as(String)
 
@@ -411,10 +436,24 @@ module PlaceOS::Auth
 
         if consent == "deny"
           Log.info { {action: "authorize", message: "user denied consent", client_id: client_id} }
-          redirect_to access_denied_url(redirect_uri, state), :found
+          redirect_to access_denied_url(redirect_uri, state, fragment: implicit), :found
           return
         end
         Log.info { {action: "authorize", message: "user granted consent", client_id: client_id} }
+      end
+
+      if implicit
+        raise OAuthBadRequest.new("invalid_redirect_uri", "redirect_uri is required") if redirect_uri.empty?
+        unless client
+          raise OAuthUnauthorized.new("unauthorized_client", "unknown client or unregistered redirect_uri")
+        end
+        # `Authly.code("token", ...)` mints a token with a random `sub`; the
+        # user is bound here, as token exchange does.
+        token = ::Authly::AccessToken.new(client_id, granted_scope, user_id: user.id.as(String))
+        Log.info { {action: "authorize", message: "issued an implicit grant", client_id: client_id, user_id: user.id} }
+        no_store!
+        redirect_to implicit_redirect(redirect_uri, scope, granted_scope, state, token), :found
+        return
       end
 
       result = begin
@@ -472,13 +511,41 @@ module PlaceOS::Auth
         raise OAuthBadRequest.new("invalid_request", "redirect_uri is not registered for this client")
       end
 
-      redirect_to access_denied_url(redirect_uri, state), :found
+      redirect_to access_denied_url(redirect_uri, state, fragment: response_type == "token"), :found
     end
 
-    private def access_denied_url(redirect_uri : String, state : String?) : String
+    # RFC 6749 §4.2.2: the token travels in the fragment of the redirect.
+    # Doorkeeper sent `access_token`, `token_type`, `expires_in` and `state`,
+    # which is what ts-client reads back out of the fragment. `scope` is
+    # added only when the grant differs from the request (the request
+    # omitted it). Values are percent-encoded without `+` for spaces:
+    # `decodeURIComponent` does not turn `+` back into a space.
+    private def implicit_redirect(redirect_uri : String, requested_scope : String, granted_scope : String, state : String?, token : ::Authly::AccessToken) : String
+      String.build do |io|
+        io << redirect_uri << '#'
+        io << "access_token=" << URI.encode_www_form(token.access_token, space_to_plus: false)
+        io << "&token_type=Bearer"
+        # the relative TTL, see `TokenResponse#initialize`
+        io << "&expires_in=" << ::Authly.config.access_ttl.total_seconds.to_i64
+        if granted_scope != requested_scope
+          io << "&scope=" << URI.encode_www_form(granted_scope, space_to_plus: false)
+        end
+        if (s = state.presence)
+          io << "&state=" << URI.encode_www_form(s, space_to_plus: false)
+        end
+      end
+    end
+
+    # RFC 6749 §4.1.2.1 puts the error in the query; §4.2.2.1 (the implicit
+    # grant) puts it in the fragment, where the token would have gone.
+    private def access_denied_url(redirect_uri : String, state : String?, fragment : Bool = false) : String
       String.build do |io|
         io << redirect_uri
-        io << (redirect_uri.includes?('?') ? '&' : '?')
+        if fragment
+          io << '#'
+        else
+          io << (redirect_uri.includes?('?') ? '&' : '?')
+        end
         io << "error=access_denied"
         io << "&error_description=" << URI.encode_www_form(
           "The resource owner or authorization server denied the request.")
@@ -833,9 +900,9 @@ module PlaceOS::Auth
         @registration_endpoint = "#{base}/auth/oauth/register"
         @end_session_endpoint = logout
         @scopes_supported = ["openid", "profile", "email", "offline_access", "public"]
-        # `implicit` and `password` are intentionally absent.
-        @response_types_supported = ["code"]
-        @grant_types_supported = ["authorization_code", "client_credentials", "refresh_token", Utils::EntraTokenExchange::GRANT_TYPE]
+        # `password` is intentionally absent.
+        @response_types_supported = ["code", "token"]
+        @grant_types_supported = ["authorization_code", "implicit", "client_credentials", "refresh_token", Utils::EntraTokenExchange::GRANT_TYPE]
         @subject_types_supported = ["public"]
         @id_token_signing_alg_values_supported = ["RS256"]
         # `none` advertises that public clients may authenticate the token

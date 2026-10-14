@@ -54,7 +54,7 @@ clients can flip over without changes.
 | `GET/POST` | `/auth/oauth2/callback[/:strategy]` | Consume OAuth2 callback |
 | `GET` | `/auth/saml` | Kickoff SAML SP flow |
 | `GET/POST` | `/auth/saml/callback[/:strategy]` | Consume SAMLResponse |
-| `GET/POST` | `/auth/authorize` | OAuth2 authorization endpoint (code flow), consent screen for clients that require it |
+| `GET/POST` | `/auth/authorize` | OAuth2 authorization endpoint (`response_type=code` or `token`), consent screen for clients that require it |
 | `POST` | `/auth/register` | RFC 7591 dynamic client registration (public clients, e.g. MCP clients) |
 | `POST` | `/auth/token` | OAuth2 token endpoint (`authorization_code`, `client_credentials`, `refresh_token`, RFC 8693 token exchange) |
 | `POST` | `/auth/revoke` | RFC 7009 token revocation |
@@ -106,6 +106,25 @@ The user is resolved exactly as an SSO login through that strat would
 resolve them (`UserAuthLookup` on `oid`, then email, then auto-create). If
 the user has no unexpired Graph token, one is requested on their behalf
 (OAuth 2.0 on-behalf-of) and stored on the user. This step is best-effort.
+
+## Implicit grant
+
+`GET /auth/authorize?response_type=token` ([RFC 6749 §4.2](https://www.rfc-editor.org/rfc/rfc6749#section-4.2))
+redirects straight back to the client with the access token in the URL
+fragment:
+
+```
+https://app.example/oauth-resp.html#access_token=…&token_type=Bearer&expires_in=7200&state=…
+```
+
+This is what ts-client sends unless an app sets `auth_type: 'auth_code'`, and
+what the Ruby service served. The token is the same user-bound JWT the code
+flow issues, with the same 2 hour lifetime, and it is persisted so
+`/auth/token/info`, `/auth/introspect` and `/auth/revoke` all apply to it. No
+refresh token is issued; the client runs the flow again when the token
+expires. Scope is validated at the authorization endpoint, as there is no
+token endpoint step, and an omitted scope defaults to `public`. Self
+registered clients may not use it.
 
 ## MCP clients
 

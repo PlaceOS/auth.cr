@@ -318,10 +318,10 @@ module PlaceOS::Auth
         # Whatever lands in this URL is in the browser's history and in the
         # `Referer` the client site sends onward. A single-use, PKCE-bound
         # `code` is the protocol's accepted cost; a token there would not be.
-        # This is the assertion that fails if the implicit flow is ever
-        # revived — `response_type=token` is rejected today (see
-        # `authorize_validation_spec.cr`), and this pins the redirect builder
-        # itself.
+        # The implicit grant (`response_type=token`) puts its token in the
+        # fragment, which browsers never send in `Referer`; that redirect is
+        # pinned in `implicit_grant_spec.cr`. This pins the code redirect
+        # builder itself.
         user, app, password, redirect = make_app.call("referer")
         location = authorize_location.call(app, user, password, redirect, "state-xyz")
 

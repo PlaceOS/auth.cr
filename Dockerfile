@@ -43,8 +43,8 @@ COPY ./src /app/src
 # errors report backtraces; release builds already embed line-number debug info.
 # Do NOT add --debug: full debug info de-optimises pure-Crystal hot paths
 # (bcrypt ~8x slower), which starved the scheduler and failed k8s healthchecks.
-# -Dpreview_mt -Dexecution_context enable the dedicated "logins" execution
-# context (see src/config.cr) so password hashing runs off the request threads.
+# -Devloop=libevent: the native epoll event loop corrupts its timers under load
+# (crystal-lang/crystal#17058)
 RUN UNAME_AT_COMPILE_TIME=true \
     PLACE_COMMIT=$PLACE_COMMIT \
     PLACE_VERSION=$PLACE_VERSION \
@@ -54,8 +54,7 @@ RUN UNAME_AT_COMPILE_TIME=true \
       --no-color \
       --static \
       --frame-pointers=always \
-      -Dpreview_mt \
-      -Dexecution_context \
+      -Devloop=libevent \
       --link-flags "-no-pie -Wl,-no-pie -Wl,--eh-frame-hdr -Wl,--build-id -rdynamic -Wl,--export-dynamic -lunwind -llzma"
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]

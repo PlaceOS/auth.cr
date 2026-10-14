@@ -170,7 +170,7 @@ module PlaceOS::Auth
 
         revoke = client.post("/auth/oauth/revoke",
           headers: HTTP::Headers{"Host" => "localhost", "Content-Type" => "application/x-www-form-urlencoded"},
-          body: URI::Params.build { |fp| fp.add("token", token) })
+          body: URI::Params.build(&.add("token", token)))
         revoke.status_code.should eq 200
 
         client.get("/auth/oauth/token/info", headers: bearer).status_code.should eq 401

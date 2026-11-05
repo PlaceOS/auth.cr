@@ -960,6 +960,97 @@ module PlaceOS::Auth
       ProtectedResource.new("#{issuer}#{request.path.lchop(PROTECTED_RESOURCE_PATH)}", issuer)
     end
 
+    # [Agentic Resource Discovery](https://agenticresourcediscovery.org) manifest:
+    # the MCP servers on this host, each linked to the MCP Server Card its API
+    # serves at `<mcp path>/server-card` (action-controller 9.3.3+). As with the
+    # protected resource metadata, auth serves it for the host because nginx
+    # routes `/.well-known/*` here. Also served as the AI Catalog, the format ARD
+    # succeeds, which MCP clients look for at `/.well-known/ai-catalog.json`.
+    struct ArdEntry
+      include JSON::Serializable
+
+      # `urn:air:<publisher>:placeos:<name>`, the publisher being this host
+      getter identifier : String
+      @[JSON::Field(key: "displayName")]
+      getter display_name : String
+      getter type : String = "application/mcp-server-card+json"
+      # the Server Card
+      getter url : String
+      getter description : String
+      getter capabilities : Array(String)
+      # what users ask for, matched by discovery services' semantic search
+      @[JSON::Field(key: "representativeQueries")]
+      getter representative_queries : Array(String)
+
+      def initialize(server : MCPServerInfo, publisher : String, issuer : String)
+        @identifier = "urn:air:#{publisher}:placeos:#{server.name}"
+        @display_name = server.title
+        @url = "#{issuer}#{server.path}/server-card"
+        @description = server.description
+        @capabilities = server.capabilities
+        @representative_queries = server.queries
+      end
+    end
+
+    struct ArdManifest
+      include JSON::Serializable
+
+      # the AI Catalog version, ignored by ARD
+      @[JSON::Field(key: "specVersion")]
+      getter spec_version : String = "1.0"
+      getter entries : Array(ArdEntry)
+
+      def initialize(@entries)
+      end
+    end
+
+    record MCPServerInfo, name : String, path : String, title : String, description : String, capabilities : Array(String), queries : Array(String)
+
+    # `title` and `description` repeat the APIs' `server_title` and
+    # `server_description` (rest-api `src/placeos-rest-api/mcp.cr`, staff-api
+    # `src/mcp.cr`), keep them in step
+    MCP_SERVERS = [
+      MCPServerInfo.new(
+        name: "workplace",
+        path: "/api/staff/v1/mcp",
+        title: "PlaceOS Workplace",
+        description: "Book desks, parking, lockers and meeting rooms, manage meetings and visitors, and find colleagues",
+        capabilities: ["DeskBooking", "MeetingRoomBooking", "ParkingBooking", "LockerBooking", "VisitorManagement", "StaffDirectory"],
+        queries: [
+          "book a desk near my team tomorrow",
+          "find a free meeting room for 6 people at 2pm",
+          "reserve a car park space for Friday",
+          "register a visitor for my 10am meeting",
+          "what meetings and bookings do I have today",
+        ],
+      ),
+      MCPServerInfo.new(
+        name: "engine",
+        path: "/api/engine/v2/mcp",
+        title: "PlaceOS Building Management",
+        description: "Configure buildings, rooms and devices, control AV and building systems, and debug their drivers",
+        capabilities: ["SpaceConfiguration", "DeviceControl", "DriverDebugging", "SignageManagement"],
+        queries: [
+          "why isn't the projector in the boardroom responding",
+          "capture the debug logs of the lighting module",
+          "which rooms are on level 3 and what devices do they have",
+          "turn on the display in meeting room 4.01",
+        ],
+      ),
+    ]
+
+    @[AC::Route::GET("/.well-known/ard.json")]
+    @[AC::Route::GET("/.well-known/ai-catalog.json")]
+    def ard : ArdManifest
+      issuer = request_issuer
+      publisher = request.hostname || "localhost"
+      headers = response.headers
+      headers["Access-Control-Allow-Origin"] = "*"
+      headers["Cache-Control"] = "public, max-age=3600"
+      headers["Content-Type"] = request.path.ends_with?("ai-catalog.json") ? "application/ai-catalog+json" : "application/json"
+      ArdManifest.new(MCP_SERVERS.map { |server| ArdEntry.new(server, publisher, issuer) })
+    end
+
     # OIDC discovery §2: WebFinger. The legacy service echoed the
     # `resource` parameter back untouched with a single issuer link;
     # requests without `resource` fail with 400.

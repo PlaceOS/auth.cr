@@ -1,6 +1,6 @@
 # auth.cr
 
-[![CI](https://github.com/PlaceOS/auth/actions/workflows/ci.yml/badge.svg)](https://github.com/PlaceOS/auth/actions/workflows/ci.yml)
+[![CI](https://github.com/PlaceOS/auth.cr/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PlaceOS/auth.cr/actions/workflows/ci.yml)
 
 Crystal/spider-gazelle replacement for the legacy Ruby/Rails `auth`
 service. Route-for-route compatible with the existing wire protocol so

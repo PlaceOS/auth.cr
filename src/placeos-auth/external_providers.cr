@@ -3,6 +3,8 @@ require "multi_auth/providers/generic_oauth2"
 require "multi_auth_saml"
 require "placeos-models"
 
+require "./utilities/saml_idp_metadata"
+
 # Reopens `MultiAuth::Provider::GenericOAuth2` to restore comma-fallback
 # `info_mappings` semantics (loaded after the shard's classes are defined).
 require "./multi_auth_patch"
@@ -132,7 +134,11 @@ module PlaceOS::Auth::ExternalProviders
     ::PlaceOS::Model::SamlAuthentication.find?(provider_id)
   end
 
-  private def self.build_saml(redirect_uri : String, provider_id : String?) : ::MultiAuth::Provider
+  # `trusted_cert` is the IdP cert resolved from the IdP's metadata (see
+  # `Utils::SamlIdpMetadata`) for strats configured without `idp_cert` /
+  # `idp_cert_fingerprint`. Only the callback passes it; the kickoff needs no
+  # cert.
+  def self.build_saml(redirect_uri : String, provider_id : String?, trusted_cert : String? = nil) : ::MultiAuth::Provider
     strat = find_saml_strat(provider_id)
     if strat.nil?
       raise ::MultiAuth::Exception.new("unknown saml strategy: #{provider_id.inspect}")
@@ -145,19 +151,20 @@ module PlaceOS::Auth::ExternalProviders
     # DB value straight through (falling back to the computed callback
     # only if the column is somehow blank).
     acs_url = strat.assertion_consumer_service_url.presence || redirect_uri
+    verify = !!(trusted_cert.presence || strat.idp_cert.presence || strat.idp_cert_fingerprint.presence)
 
     ::MultiAuth::Provider::SAML.new(
       provider_name: SAML_PROVIDER,
       redirect_uri: acs_url,
       idp_sso_url: strat.idp_sso_target_url,
-      idp_cert: strat.idp_cert,
-      idp_cert_fingerprint: strat.idp_cert_fingerprint,
+      idp_cert: trusted_cert || strat.idp_cert,
+      idp_cert_fingerprint: trusted_cert ? nil : strat.idp_cert_fingerprint,
       sp_entity_id: strat.issuer,
       name_identifier_format: strat.name_identifier_format,
       uid_attribute: strat.uid_attribute,
       attribute_statements: saml_attribute_mapping(strat),
-      want_assertions_signed: strat.idp_cert.presence || strat.idp_cert_fingerprint.presence ? true : false,
-      want_signature_validated: strat.idp_cert.presence || strat.idp_cert_fingerprint.presence ? true : false,
+      want_assertions_signed: verify,
+      want_signature_validated: verify,
     )
   end
 

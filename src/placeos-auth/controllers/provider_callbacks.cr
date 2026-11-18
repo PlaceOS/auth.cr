@@ -144,9 +144,14 @@ module PlaceOS::Auth
 
       # SAML assertions authenticate the callback entirely on their own, so a
       # response we cannot verify must never establish an identity.
-      if saml_provider?(provider) && !saml_assertion_verifiable?(id, params)
-        redirect_to "/auth/failure", :found
-        return
+      if saml_provider?(provider)
+        verifiable, trusted_cert = saml_assertion_verifiable(id, params)
+        unless verifiable
+          redirect_to "/auth/failure", :found
+          return
+        end
+        # no cert configured on the strat: verify against the IdP's metadata cert
+        engine = ::MultiAuth::Engine.new(ExternalProviders.build_saml(redirect_uri, id, trusted_cert)) if trusted_cert
       end
 
       # The provider round-trip (code->token exchange + userinfo fetch)
@@ -260,78 +265,80 @@ module PlaceOS::Auth
     #     advertise `WantAssertionsSigned="true"` in our SP metadata. Nothing
     #     reads it during response validation.
     #   * `want_signature_validated` gates the cryptographic comparison, but
-    #     that code is only reached once a signature node exists, and we set it
-    #     from `idp_cert.presence || idp_cert_fingerprint.presence` — so a
-    #     strat with neither disables verification entirely.
+    #     that code is only reached once a signature node exists, and
+    #     `build_saml` sets it only when there is a cert to verify against.
     #
     # Together that meant an attacker who could POST to the ACS with a
     # self-authored, unsigned assertion was logged in as whoever they named,
     # and the user was auto-provisioned.
     #
-    # The legacy Ruby service never had this hole: `ruby-saml`'s
-    # `validate_signed_elements` rejects a response with zero signature nodes
-    # unconditionally (`!signed_elements.empty?`), independently of
-    # `want_assertions_signed`, and separately requires the *Assertion* to be
-    # signed when the SP asks for it. This mirrors that, so auth.cr is at
-    # least as strict as what it replaces.
-    private def saml_assertion_verifiable?(provider_id : String?, params) : Bool
+    # The trust anchor is the strat's `idp_cert` / `idp_cert_fingerprint` or,
+    # when neither is set, the signing cert published in the IdP's metadata
+    # (`Utils::SamlIdpMetadata`). The legacy Ruby service, with no cert set,
+    # trusted whatever cert the response itself embedded
+    # (`generic_adfs.rb` `DEFAULT_CERT_VALIDATOR`), i.e. any signer at all;
+    # that is deliberately not reproduced.
+    #
+    # Returns whether to proceed and, for metadata-anchored strats, the PEM
+    # cert `engine.user` must verify the signature against.
+    private def saml_assertion_verifiable(provider_id : String?, params) : Tuple(Bool, String?)
       strat = ExternalProviders.find_saml_strat(provider_id)
       if strat.nil?
         Log.warn { {action: "saml.verify", message: "unknown saml strategy", id: provider_id} }
-        return false
-      end
-
-      # (1) Fail CLOSED with no trust anchor. Without a cert or fingerprint
-      # there is nothing to check a signature against, so "accept" would mean
-      # "trust anyone who can reach the ACS". Ruby's check does not depend on
-      # cert presence, so refusing here keeps us no weaker than it.
-      if strat.idp_cert.presence.nil? && strat.idp_cert_fingerprint.presence.nil?
-        Log.warn { {action: "saml.verify", message: "saml strategy has no idp_cert or idp_cert_fingerprint — refusing to authenticate an unverifiable assertion", strat: strat.id} }
-        return false
+        return {false, nil}
       end
 
       raw = params.find { |key, _| key == "SAMLResponse" }.try(&.[1])
       if raw.nil? || raw.empty?
         Log.warn { {action: "saml.verify", message: "callback carried no SAMLResponse", strat: strat.id} }
-        return false
+        return {false, nil}
       end
 
       xml = begin
         String.new(Base64.decode(raw))
       rescue
         Log.warn { {action: "saml.verify", message: "SAMLResponse was not valid base64", strat: strat.id} }
-        return false
+        return {false, nil}
       end
 
       document = begin
         XML.parse(xml)
       rescue
         Log.warn { {action: "saml.verify", message: "SAMLResponse was not valid XML", strat: strat.id} }
-        return false
+        return {false, nil}
       end
 
-      # (2) A signature must be PRESENT, and must sign the Response or the
+      # A signature must be PRESENT, and must sign the Response or the
       # Assertion — not some nested element an attacker chose. Mirrors
       # ruby-saml's `validate_signed_elements`, including its cap of at most
       # two signature nodes (Response + Assertion).
       nodes = document.xpath_nodes("//ds:Signature", {"ds" => "http://www.w3.org/2000/09/xmldsig#"})
       if nodes.empty?
         Log.warn { {action: "saml.verify", message: "SAMLResponse carried no signature — rejected", strat: strat.id} }
-        return false
+        return {false, nil}
       end
       if nodes.size > 2
         Log.warn { {action: "saml.verify", message: "unexpected number of signature elements", count: nodes.size, strat: strat.id} }
-        return false
+        return {false, nil}
       end
       unless nodes.all? { |node| {"Response", "Assertion"}.includes?(node.parent.try(&.name)) }
         Log.warn { {action: "saml.verify", message: "signature does not cover the Response or Assertion", strat: strat.id} }
-        return false
+        return {false, nil}
       end
 
-      # The cryptographic check itself still happens in `engine.user`, which
-      # now genuinely runs because `want_signature_validated` is true whenever
-      # we get this far (a cert or fingerprint is guaranteed present above).
-      true
+      # A configured cert or fingerprint is the trust anchor; `engine.user`
+      # verifies against it.
+      return {true, nil} if strat.idp_cert.presence || strat.idp_cert_fingerprint.presence
+
+      # Otherwise the IdP's published metadata is. Fail CLOSED without one:
+      # with nothing to check the signature against, "accept" would mean
+      # "trust anyone who can reach the ACS".
+      if trusted_cert = Utils::SamlIdpMetadata.trusted_cert(strat.idp_sso_target_url, strat.issuer, xml)
+        return {true, trusted_cert}
+      end
+
+      Log.warn { {action: "saml.verify", message: "saml strategy has no idp_cert or idp_cert_fingerprint and its IdP metadata could not vouch for the signer — refusing to authenticate an unverifiable assertion", strat: strat.id} }
+      {false, nil}
     end
 
     private def consume_stored_state : Tuple(String?, String?, String?)

@@ -395,11 +395,13 @@ module PlaceOS::Auth
           email = "saml-md-assertion-#{Random.rand(99999)}@localhost"
           xml = build.call(strat, email)
           assertion = xml[/<saml:Assertion\b.*?<\/saml:Assertion>/m]
-          xml = xml.sub(assertion, Spec::SamlFixtures.signed(assertion))
+          # The signer includes this namespace in the digest when it is in scope.
+          in_scope = assertion.sub("<saml:Assertion", %(<saml:Assertion xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"))
+          xml = xml.sub(assertion, Spec::SamlFixtures.signed(in_scope))
 
           result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
 
-          result.status_code.should eq 303
+          fail "assertion was rejected: #{result.status_code} #{result.body}" unless result.status_code == 303
           ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should_not be_nil
         ensure
           strat.try &.destroy

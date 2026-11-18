@@ -142,6 +142,34 @@ module PlaceOS::Auth::Spec
       signed(xml, attacker_key, attacker_certificate)
     end
 
+    # IdP SAML metadata publishing `certs` (PEM) as signing keys, shaped like
+    # Entra's tenant metadata: a WS-Fed `RoleDescriptor` with its own key
+    # alongside the `IDPSSODescriptor`, which must be the only one trusted.
+    def idp_metadata(certs : Array(String), role_descriptor_cert : String? = nil) : String
+      b64 = ->(pem : String) { pem.lines.reject(&.starts_with?("-----")).join.strip }
+      key_descriptors = certs.map { |pem|
+        %(<KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><X509Data><X509Certificate>#{b64.call(pem)}</X509Certificate></X509Data></KeyInfo></KeyDescriptor>)
+      }.join
+      role = role_descriptor_cert.try { |pem|
+        %(<RoleDescriptor xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:fed="http://docs.oasis-open.org/wsfed/federation/200706" xsi:type="fed:SecurityTokenServiceType" protocolSupportEnumeration="http://docs.oasis-open.org/wsfed/federation/200706"><KeyDescriptor use="signing"><KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#"><X509Data><X509Certificate>#{b64.call(pem)}</X509Certificate></X509Data></KeyInfo></KeyDescriptor></RoleDescriptor>)
+      }
+
+      <<-XML
+      <?xml version="1.0" encoding="utf-8"?>
+      <EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" ID="_#{UUID.random.hexstring}" entityID="https://idp.example.test/metadata">
+        #{role}
+        <IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+          #{key_descriptors}
+          <SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.test/sso"/>
+        </IDPSSODescriptor>
+      </EntityDescriptor>
+      XML
+    end
+
+    def attacker_cert_pem : String
+      File.read(File.join(FIXTURE_DIR, "attacker_cert.pem"))
+    end
+
     # Ready-to-POST form value.
     def encode(xml : String) : String
       Base64.strict_encode(xml)

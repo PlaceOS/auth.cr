@@ -135,24 +135,30 @@ module PlaceOS::Auth
       continue_target = consume_continue
 
       redirect_uri = callback_uri(provider, id)
-      engine = ::MultiAuth.make(provider, redirect_uri, id)
 
       # `request.query_params` is `URI::Params` (Enumerable of
       # `{String, String}`) — exactly what multi_auth wants. For POST
       # callbacks (e.g. some Azure flows) we also fold in the form body.
-      params = callback_params
+      params = callback_params.to_h
 
       # SAML assertions authenticate the callback entirely on their own, so a
       # response we cannot verify must never establish an identity.
-      if saml_provider?(provider)
-        verifiable, trusted_cert = saml_assertion_verifiable(id, params)
-        unless verifiable
-          redirect_to "/auth/failure", :found
-          return
-        end
-        # no cert configured on the strat: verify against the IdP's metadata cert
-        engine = ::MultiAuth::Engine.new(ExternalProviders.build_saml(redirect_uri, id, trusted_cert)) if trusted_cert
-      end
+      engine = if saml_provider?(provider)
+                 strat = ExternalProviders.find_saml_strat(id)
+                 unless strat && strat.authority_id == authority.id
+                   raise ::MultiAuth::Exception.new("unknown saml strategy")
+                 end
+
+                 verifiable, trusted_cert = saml_assertion_verifiable(strat, params["SAMLResponse"]?)
+                 unless verifiable
+                   redirect_to "/auth/failure", :found
+                   return
+                 end
+
+                 ::MultiAuth::Engine.new(ExternalProviders.build_saml(redirect_uri, strat, trusted_cert))
+               else
+                 ::MultiAuth.make(provider, redirect_uri, id)
+               end
 
       # The provider round-trip (code->token exchange + userinfo fetch)
       # can fail for reasons outside our control: the IdP rejects the
@@ -281,14 +287,13 @@ module PlaceOS::Auth
     #
     # Returns whether to proceed and, for metadata-anchored strats, the PEM
     # cert `engine.user` must verify the signature against.
-    private def saml_assertion_verifiable(provider_id : String?, params) : Tuple(Bool, String?)
-      strat = ExternalProviders.find_saml_strat(provider_id)
-      if strat.nil?
-        Log.warn { {action: "saml.verify", message: "unknown saml strategy", id: provider_id} }
-        return {false, nil}
-      end
+    SAML_NAMESPACES = {
+      "p"  => "urn:oasis:names:tc:SAML:2.0:protocol",
+      "a"  => "urn:oasis:names:tc:SAML:2.0:assertion",
+      "ds" => "http://www.w3.org/2000/09/xmldsig#",
+    }
 
-      raw = params.find { |key, _| key == "SAMLResponse" }.try(&.[1])
+    private def saml_assertion_verifiable(strat : ::PlaceOS::Model::SamlAuthentication, raw : String?) : Tuple(Bool, String?)
       if raw.nil? || raw.empty?
         Log.warn { {action: "saml.verify", message: "callback carried no SAMLResponse", strat: strat.id} }
         return {false, nil}
@@ -308,21 +313,9 @@ module PlaceOS::Auth
         return {false, nil}
       end
 
-      # A signature must be PRESENT, and must sign the Response or the
-      # Assertion — not some nested element an attacker chose. Mirrors
-      # ruby-saml's `validate_signed_elements`, including its cap of at most
-      # two signature nodes (Response + Assertion).
-      nodes = document.xpath_nodes("//ds:Signature", {"ds" => "http://www.w3.org/2000/09/xmldsig#"})
-      if nodes.empty?
-        Log.warn { {action: "saml.verify", message: "SAMLResponse carried no signature — rejected", strat: strat.id} }
-        return {false, nil}
-      end
-      if nodes.size > 2
-        Log.warn { {action: "saml.verify", message: "unexpected number of signature elements", count: nodes.size, strat: strat.id} }
-        return {false, nil}
-      end
-      unless nodes.all? { |node| {"Response", "Assertion"}.includes?(node.parent.try(&.name)) }
-        Log.warn { {action: "saml.verify", message: "signature does not cover the Response or Assertion", strat: strat.id} }
+      assertion = saml_signed_assertion(document)
+      unless assertion
+        Log.warn { {action: "saml.verify", message: "expected one assertion covered by a SAML signature", strat: strat.id} }
         return {false, nil}
       end
 
@@ -330,15 +323,53 @@ module PlaceOS::Auth
       # verifies against it.
       return {true, nil} if strat.idp_cert.presence || strat.idp_cert_fingerprint.presence
 
-      # Otherwise the IdP's published metadata is. Fail CLOSED without one:
-      # with nothing to check the signature against, "accept" would mean
-      # "trust anyone who can reach the ACS".
-      if trusted_cert = Utils::SamlIdpMetadata.trusted_cert(strat.idp_sso_target_url, strat.issuer, xml)
+      # Metadata keys can be shared by multiple tenants or applications.
+      # Require both the signing IdP's issuer and the SP's audience.
+      issuers = assertion.xpath_nodes("a:Issuer", SAML_NAMESPACES)
+      restrictions = assertion.xpath_nodes("a:Conditions/a:AudienceRestriction", SAML_NAMESPACES)
+      unless issuers.size == 1 && restrictions.size > 0 && restrictions.all? { |restriction|
+               restriction.xpath_nodes("a:Audience", SAML_NAMESPACES).any? { |audience| audience.content == strat.issuer }
+             }
+        Log.warn { {action: "saml.verify", message: "expected an assertion issuer and audience for this SAML strategy", strat: strat.id} }
+        return {false, nil}
+      end
+
+      if trusted_cert = Utils::SamlIdpMetadata.trusted_cert(strat.idp_sso_target_url, strat.issuer, document, issuers[0].content)
         return {true, trusted_cert}
       end
 
       Log.warn { {action: "saml.verify", message: "saml strategy has no idp_cert or idp_cert_fingerprint and its IdP metadata could not vouch for the signer — refusing to authenticate an unverifiable assertion", strat: strat.id} }
       {false, nil}
+    end
+
+    # crystal-saml validates the first signature and reads the first assertion.
+    # Require one direct assertion and bind each signature to the unique ID
+    # of its parent, so the verified element covers the identity we consume.
+    private def saml_signed_assertion(document : XML::Node) : XML::Node?
+      response = document.xpath_node("/p:Response", SAML_NAMESPACES)
+      assertions = document.xpath_nodes("//a:Assertion", SAML_NAMESPACES)
+      assertion = assertions.first?
+      return unless response && assertions.size == 1 && assertion && assertion.parent == response
+
+      signatures = document.xpath_nodes("//ds:Signature", SAML_NAMESPACES)
+      return unless (1..2).includes?(signatures.size)
+
+      signed_ids = Set(String).new
+      ids = document.xpath_nodes("//*[@ID]").map { |node| node["ID"] }
+      signatures.each do |signature|
+        parent = signature.parent
+        return unless parent && (parent == response || parent == assertion)
+
+        id = parent["ID"]?.try(&.presence)
+        return if id.nil? || id.includes?('\'') || ids.count(id) != 1 || !signed_ids.add?(id)
+
+        signed_infos = signature.xpath_nodes(".//ds:SignedInfo", SAML_NAMESPACES)
+        return unless signed_infos.size == 1 && signed_infos[0].parent == signature
+
+        references = signed_infos[0].xpath_nodes(".//ds:Reference", SAML_NAMESPACES)
+        return unless references.size == 1 && references[0].parent == signed_infos[0] && references[0]["URI"]? == "##{id}"
+      end
+      assertion
     end
 
     private def consume_stored_state : Tuple(String?, String?, String?)

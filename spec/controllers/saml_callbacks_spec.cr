@@ -306,6 +306,22 @@ module PlaceOS::Auth
         strat.try &.destroy
       end
 
+      it "rejects a callback for a strategy owned by another authority" do
+        authority = ::PlaceOS::Model::Generator.authority
+        authority.domain = "saml-#{UUID.random.hexstring}.example"
+        authority.save!
+        strat = signed_strat.call(true)
+        strat.authority_id = authority.id
+        strat.save!
+        email = "saml-foreign-#{Random.rand(99999)}@localhost"
+        xml = Spec::SamlFixtures.signed(build.call(strat, email))
+
+        reject_or_explain.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+      ensure
+        strat.try &.destroy
+        authority.try &.destroy
+      end
+
       it "FAILS CLOSED when the strat has no cert, fingerprint or IdP metadata to verify against" do
         # Both SAML strats on the dev server are configured exactly like this.
         # Previously `want_signature_validated` / `want_assertions_signed` both
@@ -373,6 +389,22 @@ module PlaceOS::Auth
           strat.try &.destroy
         end
 
+        it "accepts a signature on the assertion inside an unsigned response" do
+          documents[tenant_metadata] = Spec::SamlFixtures.idp_metadata([Spec::SamlFixtures.idp_cert_pem])
+          strat = entra_strat.call
+          email = "saml-md-assertion-#{Random.rand(99999)}@localhost"
+          xml = build.call(strat, email)
+          assertion = xml[/<saml:Assertion\b.*?<\/saml:Assertion>/m]
+          xml = xml.sub(assertion, Spec::SamlFixtures.signed(assertion))
+
+          result = post_assertion.call(strat, Spec::SamlFixtures.encode(xml))
+
+          result.status_code.should eq 303
+          ::PlaceOS::Model::UserAuthLookup.where(uid: email, provider: "adfs").first?.should_not be_nil
+        ensure
+          strat.try &.destroy
+        end
+
         # The hole the legacy Ruby service had: it trusted the cert the
         # response embedded, so any self-signed key was accepted.
         it "REJECTS an assertion signed by a key the metadata does not publish" do
@@ -393,6 +425,30 @@ module PlaceOS::Auth
           strat = entra_strat.call
           email = "saml-md-forged-#{Random.rand(99999)}@localhost"
           xml = Spec::SamlFixtures.signed(build.call(strat, email), Spec::SamlFixtures.attacker_key, Spec::SamlFixtures.idp_certificate)
+
+          reject_or_explain.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+        ensure
+          strat.try &.destroy
+        end
+
+        it "rejects a signed assertion whose issuer differs from the metadata entity ID" do
+          documents[tenant_metadata] = Spec::SamlFixtures.idp_metadata([Spec::SamlFixtures.idp_cert_pem])
+          strat = entra_strat.call
+          email = "saml-md-issuer-#{Random.rand(99999)}@localhost"
+          xml = Spec::SamlFixtures.signed(Spec::SamlFixtures.response_xml(
+            acs_url: acs, audience: strat.issuer, email: email,
+            idp_entity_id: "https://another-idp.example.test/metadata"))
+
+          reject_or_explain.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
+        ensure
+          strat.try &.destroy
+        end
+
+        it "rejects a signed assertion without an audience restriction" do
+          documents[tenant_metadata] = Spec::SamlFixtures.idp_metadata([Spec::SamlFixtures.idp_cert_pem])
+          strat = entra_strat.call
+          email = "saml-md-audience-#{Random.rand(99999)}@localhost"
+          xml = Spec::SamlFixtures.signed(build.call(strat, email).gsub(/<saml:AudienceRestriction>.*?<\/saml:AudienceRestriction>/, ""))
 
           reject_or_explain.call(post_assertion.call(strat, Spec::SamlFixtures.encode(xml)), email)
         ensure

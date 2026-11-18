@@ -50,7 +50,8 @@ module PlaceOS::Auth
     MD_NS   = "urn:oasis:names:tc:SAML:2.0:metadata"
     DSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
 
-    GUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+    GUID   = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+    DOMAIN = /\A(?:[a-z0-9-]+\.)+[a-z0-9-]+\z/i
 
     ENTRA_HOSTS = {
       "login.microsoftonline.com",
@@ -63,13 +64,21 @@ module PlaceOS::Auth
     alias Fetcher = Proc(URI, String)
     class_property fetcher : Fetcher = ->(uri : URI) { Utils::SamlIdpMetadata.http_fetch(uri) }
 
+    record Metadata, issuer : String, certs : Array(OpenSSL::X509::Certificate)
+
     private record Entry,
-      certs : Array(OpenSSL::X509::Certificate),
+      metadata : Metadata?,
       fetched_at : Time,
-      expires_at : Time
+      attempted_at : Time,
+      fresh : Bool
+
+    private class Slot
+      getter lock = Mutex.new
+      property entry : Entry?
+    end
 
     # metadata URL => last fetch result
-    @@cache = {} of String => Entry
+    @@cache = {} of String => Slot
     @@lock = Mutex.new
 
     def clear_cache : Nil
@@ -81,7 +90,7 @@ module PlaceOS::Auth
     def metadata_urls(sso_url : String, sp_entity_id : String? = nil) : Array(URI)
       uri = URI.parse(sso_url)
       host = uri.host.try(&.downcase).presence
-      return [] of URI unless uri.scheme == "https" && host
+      return [] of URI unless uri.scheme == "https" && host && uri.user.nil? && uri.password.nil?
       segments = uri.path.split('/').reject(&.empty?)
       base = "https://#{uri.authority}"
 
@@ -94,10 +103,13 @@ module PlaceOS::Auth
         # non-GUID appid is a 400, so the GUID is pulled out of the entity id
         # (`spn:<guid>`, `api://<guid>`) and the plain tenant metadata used
         # when there is none.
-        if (tenant = segments.first?) && segments[1]?.try(&.downcase) == "saml2"
-          tenant = URI.encode_path_segment(tenant)
+        if segments.size == 2 && segments[1].downcase == "saml2"
+          tenant = segments[0]
+          # Tenant-independent endpoints publish keys shared across tenants.
+          return [] of URI unless tenant.matches?(/\A#{GUID}\z/) || tenant.matches?(DOMAIN)
+
           tenant_metadata = "#{base}/#{tenant}/federationmetadata/2007-06/federationmetadata.xml"
-          if appid = sp_entity_id.try(&.[GUID]?)
+          if appid = sp_entity_id.try(&.[/\A(?:spn:|api:\/\/)?(#{GUID})\z/i, 1]?)
             urls << "#{tenant_metadata}?appid=#{appid}"
           else
             urls << tenant_metadata
@@ -105,7 +117,7 @@ module PlaceOS::Auth
         end
       elsif segments.first?.try(&.downcase) == "adfs"
         urls << "#{base}/FederationMetadata/2007-06/FederationMetadata.xml"
-      elsif segments.size == 5 && segments[0] == "app" && segments[3] == "sso" && segments[4] == "saml"
+      elsif segments.size == 5 && segments[0] == "app" && segments[2].matches?(/\A[a-zA-Z0-9]+\z/) && segments[3] == "sso" && segments[4] == "saml"
         # Okta: /app/<name>/<id>/sso/saml => /app/<id>/sso/saml/metadata
         urls << "#{base}/app/#{segments[2]}/sso/saml/metadata"
       end
@@ -120,18 +132,20 @@ module PlaceOS::Auth
     # The cert embedded in the response (`ds:KeyInfo`) only selects which of
     # the published certs to use, it is never trusted on its own. Signature
     # verification then runs against the returned cert as normal.
-    def trusted_cert(sso_url : String, sp_entity_id : String?, response_xml : String) : String?
+    def trusted_cert(sso_url : String, sp_entity_id : String?, document : XML::Node, issuer : String) : String?
       urls = metadata_urls(sso_url, sp_entity_id)
       return if urls.empty?
 
-      embedded = begin
-        ::SAML::Utils.extract_cert_from_signature(XML.parse(response_xml))
-      rescue
-        nil
-      end
+      signature = document.xpath_node("//ds:Signature", {"ds" => DSIG_NS})
+      cert_node = signature.try(&.xpath_node("ds:KeyInfo/ds:X509Data/ds:X509Certificate", {"ds" => DSIG_NS}))
+      embedded = ::SAML::Utils.build_cert(cert_node.try(&.content.gsub(/\s+/, "")))
+      return nil if cert_node && embedded.nil?
 
       urls.each do |uri|
-        certs = certs_for(uri, embedded)
+        metadata = metadata_for(uri, embedded)
+        next unless metadata && metadata.issuer == issuer
+
+        certs = metadata.certs
         if embedded
           return embedded.to_pem if certs.any? { |cert| same_cert?(cert, embedded) }
         elsif certs.size == 1
@@ -142,9 +156,11 @@ module PlaceOS::Auth
 
       Log.warn { {
         action:   "saml.metadata",
-        message:  embedded ? "response signing cert is not published in the IdP metadata" : "response carries no signing cert and the IdP metadata does not identify a single one",
+        message:  "IdP metadata did not identify a trusted signer for the assertion issuer",
         metadata: urls.map(&.to_s).join(", "),
       } }
+      nil
+    rescue OpenSSL::Error
       nil
     end
 
@@ -153,46 +169,58 @@ module PlaceOS::Auth
     # `REFRESH_ON_MISS`), so a rotated IdP cert is picked up without waiting
     # out the TTL. A failed fetch keeps serving the last good certs for up to
     # `STALE_LIMIT`.
-    def certs_for(uri : URI, embedded : OpenSSL::X509::Certificate? = nil) : Array(OpenSSL::X509::Certificate)
+    def metadata_for(uri : URI, embedded : OpenSSL::X509::Certificate? = nil) : Metadata?
       key = uri.to_s
-      now = Time.utc
-      cached = @@lock.synchronize { @@cache[key]? }
+      slot = @@lock.synchronize { @@cache[key] ||= Slot.new }
 
-      if cached
-        fresh = cached.expires_at > now
-        known = embedded.nil? || cached.certs.any? { |cert| same_cert?(cert, embedded) }
-        return cached.certs if fresh && (known || now - cached.fetched_at < REFRESH_ON_MISS)
-      end
-
-      entry = begin
-        certs = parse_signing_certs(fetcher.call(uri))
-        raise Invalid.new("metadata lists no IdP signing certificates") if certs.empty?
-        Entry.new(certs, now, now + TTL)
-      rescue error
-        Log.warn { {action: "saml.metadata", message: "IdP metadata fetch failed", metadata: key, reason: error.message} }
-        if cached && !cached.certs.empty? && now - cached.fetched_at < STALE_LIMIT
-          Entry.new(cached.certs, cached.fetched_at, now + NEGATIVE_TTL)
-        else
-          Entry.new([] of OpenSSL::X509::Certificate, now, now + NEGATIVE_TTL)
+      slot.lock.synchronize do
+        now = Time.utc
+        cached = slot.entry
+        if cached
+          known = embedded.nil? || cached.metadata.try(&.certs.any? { |cert| same_cert?(cert, embedded) })
+          retry_delay = known ? NEGATIVE_TTL : REFRESH_ON_MISS
+          if (known && cached.fresh && now - cached.fetched_at < TTL) || now - cached.attempted_at < retry_delay
+            return now - cached.fetched_at < STALE_LIMIT ? cached.metadata : nil
+          end
         end
-      end
 
-      @@lock.synchronize { @@cache[key] = entry }
-      entry.certs
+        entry = begin
+          body = fetcher.call(uri)
+          metadata = parse_metadata(body)
+          now = Time.utc
+          Entry.new(metadata, now, now, true)
+        rescue error
+          now = Time.utc
+          Log.warn { {action: "saml.metadata", message: "IdP metadata fetch failed", metadata: key, reason: error.message} }
+          if cached && now - cached.fetched_at < STALE_LIMIT && !error.is_a?(Invalid | XML::Error)
+            Entry.new(cached.metadata, cached.fetched_at, now, false)
+          else
+            Entry.new(nil, now, now, false)
+          end
+        end
+
+        slot.entry = entry
+        entry.metadata
+      end
     end
 
     # Signing certs of the metadata's `IDPSSODescriptor`. Other role
     # descriptors (e.g. Entra's WS-Fed ones) are ignored.
-    def parse_signing_certs(body : String) : Array(OpenSSL::X509::Certificate)
+    def parse_metadata(body : String) : Metadata
       document = XML.parse(body)
+      namespaces = {"md" => MD_NS, "ds" => DSIG_NS}
+      entity = document.xpath_node("/md:EntityDescriptor", namespaces)
+      issuer = entity.try(&.["entityID"]?).try(&.presence)
+      raise Invalid.new("expected metadata for a single IdP with an entity ID") unless entity && issuer
+
       nodes = document.xpath_nodes(
-        "//md:IDPSSODescriptor/md:KeyDescriptor[not(@use) or @use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate",
-        {"md" => MD_NS, "ds" => DSIG_NS},
+        "/md:EntityDescriptor/md:IDPSSODescriptor/md:KeyDescriptor[not(@use) or @use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate",
+        namespaces,
       )
       certs = nodes.compact_map do |node|
         ::SAML::Utils.build_cert(node.content.gsub(/\s+/, "")) rescue nil
       end
-      certs.uniq(&.to_der)
+      Metadata.new(issuer, certs.uniq(&.to_der))
     end
 
     # :nodoc:
@@ -203,6 +231,7 @@ module PlaceOS::Auth
 
       client.get(uri.request_target, headers: HTTP::Headers{"Accept" => "application/samlmetadata+xml, application/xml, text/xml"}) do |response|
         # redirects are not followed: the trust argument rests on the host
+        raise IO::Error.new("unexpected status #{response.status_code}") if response.status.server_error?
         raise Invalid.new("unexpected status #{response.status_code}") unless response.status.ok?
 
         buffer = Bytes.new(MAX_BODY + 1)

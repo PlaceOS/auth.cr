@@ -134,16 +134,16 @@ module PlaceOS::Auth::ExternalProviders
     ::PlaceOS::Model::SamlAuthentication.find?(provider_id)
   end
 
-  # `trusted_cert` is the IdP cert resolved from the IdP's metadata (see
-  # `Utils::SamlIdpMetadata`) for strats configured without `idp_cert` /
-  # `idp_cert_fingerprint`. Only the callback passes it; the kickoff needs no
-  # cert.
-  def self.build_saml(redirect_uri : String, provider_id : String?, trusted_cert : String? = nil) : ::MultiAuth::Provider
+  private def self.build_saml(redirect_uri : String, provider_id : String?) : ::MultiAuth::Provider
     strat = find_saml_strat(provider_id)
     if strat.nil?
       raise ::MultiAuth::Exception.new("unknown saml strategy: #{provider_id.inspect}")
     end
+    build_saml(redirect_uri, strat)
+  end
 
+  # The callback supplies a metadata cert for strategies without a pin.
+  def self.build_saml(redirect_uri : String, strat : ::PlaceOS::Model::SamlAuthentication, trusted_cert : String? = nil) : ::MultiAuth::Provider
     # Advertise the DB-configured ACS URL — exactly what the IdP has
     # registered and what the legacy service sent
     # (`options.assertion_consumer_service_url = strat.assertion_consumer_service_url`).

@@ -144,9 +144,8 @@ module PlaceOS::Auth
     # :nodoc:
     def http_fetch(uri : URI) : Tuple(String, Time::Span?)
       host = uri.host.as(String)
-      ensure_public_host!(host)
-
-      client = OutboundHTTP.client(uri, CONNECT_TIMEOUT, READ_TIMEOUT)
+      addresses = public_addresses!(host, uri.port || 443)
+      client = OutboundHTTP.client(uri, CONNECT_TIMEOUT, READ_TIMEOUT, addresses)
 
       client.get(uri.request_target, headers: HTTP::Headers{"Accept" => "application/json"}) do |response|
         # redirects are not followed
@@ -172,14 +171,16 @@ module PlaceOS::Auth
       total
     end
 
-    # refuses hosts that resolve to private, loopback or link local addresses
-    private def ensure_public_host!(host : String) : Nil
-      Socket::Addrinfo.resolve(host, 443, type: Socket::Type::STREAM).each do |info|
-        ip = info.ip_address
-        if ip.loopback? || ip.private? || ip.link_local? || ip.unspecified?
+    # The connection uses these same addresses so the destination cannot change
+    # between validation and connecting, even through a proxy.
+    private def public_addresses!(host : String, port : Int32) : Array(Socket::IPAddress)
+      addresses = Socket::Addrinfo.resolve(host, port, type: Socket::Type::STREAM).map(&.ip_address)
+      addresses.each do |ip|
+        if ip.loopback? || ip.private? || ip.link_local? || ip.unspecified? || ip.address.starts_with?("::ffff:")
           raise Invalid.new("#{host} resolves to a non-public address")
         end
       end
+      addresses
     end
 
     private def max_age(cache_control : String?) : Time::Span?

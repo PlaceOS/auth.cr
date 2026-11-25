@@ -85,7 +85,7 @@ module PlaceOS::Auth
     def verify(authority : ::PlaceOS::Model::Authority, token : String, strats : Enumerable(::PlaceOS::Model::OAuthAuthentication)) : Verified
       unverified, header = begin
         JWT.decode(token, verify: false, validate: false)
-      rescue ex : JWT::Error
+      rescue JWT::Error
         raise Rejected.new("subject_token is not a JWT")
       end
 
@@ -195,6 +195,8 @@ module PlaceOS::Auth
       user.save!
     rescue ex
       Log.warn(exception: ex) { {action: "token_exchange.obo", message: "on-behalf-of Graph token request failed", user_id: user.id} }
+    ensure
+      client.try &.close
     end
 
     # ---- audience ---------------------------------------------------------

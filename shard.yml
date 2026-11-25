@@ -42,7 +42,12 @@ dependencies:
   # JSON Web Token support
   jwt:
     github: crystal-community/jwt
-    version: ~> 1
+    version: ~> 1.8
+
+  # Proxy support for outbound internet requests (HTTPS_PROXY)
+  connect-proxy:
+    github: spider-gazelle/connect-proxy
+    version: ~> 2.0
 
   # Secrets parsing
   secrets-env:

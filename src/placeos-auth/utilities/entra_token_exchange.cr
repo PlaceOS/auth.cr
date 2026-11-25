@@ -1,6 +1,7 @@
 require "http/client"
 require "jwt"
 require "jwt/jwks"
+require "jwt/jwks_proxy"
 require "multi_auth"
 require "oauth2"
 require "placeos-models"

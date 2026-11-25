@@ -1,9 +1,11 @@
 require "http/client"
 require "jwt"
 require "jwt/jwks"
+require "jwt/jwks_proxy"
 require "multi_auth"
 require "oauth2"
 require "placeos-models"
+require "./outbound_http"
 
 module PlaceOS::Auth
   # RFC 8693 token exchange for Microsoft Entra ID access tokens.
@@ -83,7 +85,7 @@ module PlaceOS::Auth
     def verify(authority : ::PlaceOS::Model::Authority, token : String, strats : Enumerable(::PlaceOS::Model::OAuthAuthentication)) : Verified
       unverified, header = begin
         JWT.decode(token, verify: false, validate: false)
-      rescue ex : JWT::Error
+      rescue JWT::Error
         raise Rejected.new("subject_token is not a JWT")
       end
 
@@ -175,9 +177,7 @@ module PlaceOS::Auth
         end
       end
 
-      client = HTTP::Client.new(endpoint)
-      client.connect_timeout = 3.seconds
-      client.read_timeout = 5.seconds
+      client = OutboundHTTP.client(endpoint, 3.seconds, 5.seconds)
       response = client.post(endpoint.request_target, headers: HTTP::Headers{"Accept" => "application/json"}, form: form)
 
       unless response.success?
@@ -195,6 +195,8 @@ module PlaceOS::Auth
       user.save!
     rescue ex
       Log.warn(exception: ex) { {action: "token_exchange.obo", message: "on-behalf-of Graph token request failed", user_id: user.id} }
+    ensure
+      client.try &.close
     end
 
     # ---- audience ---------------------------------------------------------

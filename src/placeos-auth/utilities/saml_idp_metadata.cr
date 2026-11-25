@@ -4,6 +4,7 @@ require "http/client"
 require "openssl"
 require "uri"
 require "xml"
+require "./outbound_http"
 
 module PlaceOS::Auth
   # Trust anchor for SAML strats configured without `idp_cert` /
@@ -225,9 +226,7 @@ module PlaceOS::Auth
 
     # :nodoc:
     def http_fetch(uri : URI) : String
-      client = HTTP::Client.new(uri)
-      client.connect_timeout = CONNECT_TIMEOUT
-      client.read_timeout = READ_TIMEOUT
+      client = OutboundHTTP.client(uri, CONNECT_TIMEOUT, READ_TIMEOUT)
 
       client.get(uri.request_target, headers: HTTP::Headers{"Accept" => "application/samlmetadata+xml, application/xml, text/xml"}) do |response|
         # redirects are not followed: the trust argument rests on the host

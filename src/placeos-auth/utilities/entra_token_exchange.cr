@@ -4,6 +4,7 @@ require "jwt/jwks"
 require "multi_auth"
 require "oauth2"
 require "placeos-models"
+require "./outbound_http"
 
 module PlaceOS::Auth
   # RFC 8693 token exchange for Microsoft Entra ID access tokens.
@@ -175,9 +176,7 @@ module PlaceOS::Auth
         end
       end
 
-      client = HTTP::Client.new(endpoint)
-      client.connect_timeout = 3.seconds
-      client.read_timeout = 5.seconds
+      client = OutboundHTTP.client(endpoint, 3.seconds, 5.seconds)
       response = client.post(endpoint.request_target, headers: HTTP::Headers{"Accept" => "application/json"}, form: form)
 
       unless response.success?

@@ -4,6 +4,7 @@ require "socket"
 require "uri"
 
 require "./redirect_uri"
+require "./outbound_http"
 
 module PlaceOS::Auth
   # OAuth Client ID Metadata Documents
@@ -145,9 +146,7 @@ module PlaceOS::Auth
       host = uri.host.as(String)
       ensure_public_host!(host)
 
-      client = HTTP::Client.new(uri)
-      client.connect_timeout = CONNECT_TIMEOUT
-      client.read_timeout = READ_TIMEOUT
+      client = OutboundHTTP.client(uri, CONNECT_TIMEOUT, READ_TIMEOUT)
 
       client.get(uri.request_target, headers: HTTP::Headers{"Accept" => "application/json"}) do |response|
         # redirects are not followed

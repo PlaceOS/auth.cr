@@ -200,6 +200,31 @@ module PlaceOS::Auth
         WebMock.stub(:post, token_url).to_return(status: 400, body: %({"error":"invalid_grant"}))
         result = exchange.call(app, entra_token.call({"oid" => oid.call} of String => String | Int64 | Nil, signing_key), no_extra)
         result.status_code.should eq 200
+        JSON.parse(result.body)["entra_claims_challenge"]?.should be_nil
+      end
+
+      it "returns Entra's claims challenge when the on-behalf-of request is refused with one" do
+        make_strat.call({} of String => Array(String))
+        app = make_app.call(false)
+        challenge = %({"access_token":{"capolids":{"essential":true,"values":["44b5c797-5eb9-40e5-ade0-46102be70df8"]}}})
+        WebMock.stub(:post, token_url).to_return(
+          status: 400,
+          headers: HTTP::Headers{"Content-Type" => "application/json"},
+          body: {
+            error:             "interaction_required",
+            error_description: "AADSTS53009: Application needs to enforce Intune protection policies.",
+            error_codes:       [53009],
+            claims:            challenge,
+          }.to_json,
+        )
+
+        # A user of their own: one that already holds a Graph token is not asked for again.
+        user_oid = oid.call
+        result = exchange.call(app, entra_token.call({"oid" => user_oid, "upn" => "#{user_oid}@example.onmicrosoft.com"} of String => String | Int64 | Nil, signing_key), no_extra)
+        result.status_code.should eq 200
+        body = JSON.parse(result.body)
+        body["entra_claims_challenge"].as_s.should eq challenge
+        body["access_token"].as_s.should_not be_empty
       end
 
       it "is advertised in the discovery document" do

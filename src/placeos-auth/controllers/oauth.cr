@@ -44,8 +44,12 @@ module PlaceOS::Auth
       # RFC 8693 §2.2.1: REQUIRED on a token-exchange response, absent otherwise.
       @[JSON::Field(emit_null: false)]
       getter issued_token_type : String?
+      # Token exchange only: the claims challenge Entra returned when it
+      # refused the on-behalf-of Graph token request.
+      @[JSON::Field(emit_null: false)]
+      getter entra_claims_challenge : String?
 
-      def initialize(at : ::Authly::AccessToken, @issued_token_type : String? = nil)
+      def initialize(at : ::Authly::AccessToken, @issued_token_type : String? = nil, @entra_claims_challenge : String? = nil)
         @access_token = at.access_token
         @refresh_token = at.refresh_token.presence
         @id_token = at.id_token
@@ -307,14 +311,18 @@ module PlaceOS::Auth
       end
 
       user = Utils::OAuthUserMapper.map(authority: authority, oauth_user: oauth_user).user
-      Utils::EntraTokenExchange.ensure_graph_token(verified, user, subject)
+      claims_challenge = Utils::EntraTokenExchange.ensure_graph_token(verified, user, subject)
       LoginEvents.record_login(user, oauth_user.provider)
 
       Log.info { {action: "token_exchange", message: "exchanged an Entra token", user_id: user.id, client_id: client_id, strat: verified.strat.id} }
 
       no_store!
       access_token = ::Authly::AccessToken.new(client_id, granted_scope, user_id: user.id.as(String))
-      TokenResponse.new(access_token, issued_token_type: Utils::EntraTokenExchange::TOKEN_TYPE_ACCESS_TOKEN)
+      TokenResponse.new(
+        access_token,
+        issued_token_type: Utils::EntraTokenExchange::TOKEN_TYPE_ACCESS_TOKEN,
+        entra_claims_challenge: claims_challenge,
+      )
     rescue ex : Utils::EntraTokenExchange::Rejected
       Log.info { {action: "token_exchange", message: "refused a subject token", reason: ex.message, client_id: client_id} }
       raise OAuthBadRequest.new("invalid_grant", "the subject token is invalid, expired, or not accepted by this authority")

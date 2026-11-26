@@ -154,7 +154,12 @@ module PlaceOS::Auth
     # on the user's mailbox / calendar keep working for users who only ever
     # authenticate through the add-in. Best-effort: a failure is logged and
     # the exchange still succeeds, as in rest-api.
-    def ensure_graph_token(verified : Verified, user : ::PlaceOS::Model::User, subject_token : String) : Nil
+    #
+    # Returns the claims challenge when Entra refuses the request with one
+    # (a Conditional Access policy on Graph that the subject token does not
+    # satisfy). The client repeats its Entra sign-in with these claims to
+    # get a subject token that does.
+    def ensure_graph_token(verified : Verified, user : ::PlaceOS::Model::User, subject_token : String) : String?
       if user.access_token.presence && (expires_at = user.expires_at) && expires_at > 5.minutes.from_now.to_unix
         return
       end
@@ -181,8 +186,17 @@ module PlaceOS::Auth
       response = client.post(endpoint.request_target, headers: HTTP::Headers{"Accept" => "application/json"}, form: form)
 
       unless response.success?
-        Log.warn { {action: "token_exchange.obo", message: "on-behalf-of Graph token request failed", status: response.status_code, user_id: user.id} }
-        return
+        refusal = OboRefusal.from_json(response.body) rescue nil
+        Log.warn { {
+          action:      "token_exchange.obo",
+          message:     "on-behalf-of Graph token request failed",
+          status:      response.status_code,
+          error:       refusal.try(&.error),
+          suberror:    refusal.try(&.suberror),
+          error_codes: refusal.try(&.error_codes.try(&.join(","))),
+          user_id:     user.id,
+        } }
+        return refusal.try(&.claims).presence
       end
 
       token = ::OAuth2::AccessToken.from_json(response.body)
@@ -193,10 +207,23 @@ module PlaceOS::Auth
         user.expires = true
       end
       user.save!
+      nil
     rescue ex
       Log.warn(exception: ex) { {action: "token_exchange.obo", message: "on-behalf-of Graph token request failed", user_id: user.id} }
+      nil
     ensure
       client.try &.close
+    end
+
+    # Entra's error body for a refused token request. `claims` is a JSON
+    # document, sent as a string.
+    private struct OboRefusal
+      include JSON::Serializable
+
+      getter error : String?
+      getter suberror : String?
+      getter error_codes : Array(Int64)?
+      getter claims : String?
     end
 
     # ---- audience ---------------------------------------------------------

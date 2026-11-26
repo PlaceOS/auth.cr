@@ -107,6 +107,13 @@ resolve them (`UserAuthLookup` on `oid`, then email, then auto-create). If
 the user has no unexpired Graph token, one is requested on their behalf
 (OAuth 2.0 on-behalf-of) and stored on the user. This step is best-effort.
 
+When Entra refuses the on-behalf-of request with a claims challenge (a
+Conditional Access policy on Microsoft Graph that the subject token does not
+satisfy), the response still carries the PlaceOS tokens and adds
+`entra_claims_challenge` with Entra's `claims` value. A client that needs
+the Graph token signs in to Entra again with these claims and repeats the
+exchange.
+
 ## Implicit grant
 
 `GET /auth/authorize?response_type=token` ([RFC 6749 §4.2](https://www.rfc-editor.org/rfc/rfc6749#section-4.2))
